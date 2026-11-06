@@ -92,7 +92,14 @@ class ValidatorAgent(BaseAgent):
 
             parsed = json.loads(clean_json)
             valid = bool(parsed.get("valid", True))
-            contradictions = list(parsed.get("contradictions", []))
+            raw_contradictions = parsed.get("contradictions", [])
+            contradictions = []
+            for c in raw_contradictions:
+                if isinstance(c, dict):
+                    msg = c.get("contradiction") or c.get("reason") or str(c)
+                    contradictions.append(str(msg))
+                else:
+                    contradictions.append(str(c))
             analysis = str(parsed.get("analysis", raw_output))
         except Exception:
             # Fallback heuristic if JSON parsing fails

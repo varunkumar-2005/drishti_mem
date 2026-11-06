@@ -118,6 +118,17 @@ class ValidateResponse(BaseModel):
     project_id: str
 
 
+# --- Audit Models ---
+class AuditEntry(BaseModel):
+    id: str
+    project_id: str
+    agent_id: str
+    action: str
+    query_or_text: Optional[str] = None
+    result_count: int
+    timestamp: str
+
+
 # --- Health & Error ---
 class HealthResponse(BaseModel):
     status: str

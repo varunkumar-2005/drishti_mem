@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.agents import router as agents_router
+from backend.api.audit import router as audit_router
 from backend.api.memory import router as memory_router
 from backend.api.projects import router as projects_router
 from backend.config import get_settings
@@ -75,6 +76,7 @@ app.add_middleware(
 app.include_router(projects_router)
 app.include_router(memory_router)
 app.include_router(agents_router)
+app.include_router(audit_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
