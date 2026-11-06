@@ -118,6 +118,67 @@ def list_projects(db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
+def register_agent(
+    agent_id: str,
+    project_id: str,
+    name: str,
+    role: str = "",
+    created_at: Optional[str] = None,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    if not created_at:
+        created_at = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO agents (id, project_id, name, role, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role
+            """,
+            (agent_id, project_id, name, role, created_at),
+        )
+        conn.commit()
+    return {
+        "id": agent_id,
+        "project_id": project_id,
+        "name": name,
+        "role": role,
+        "created_at": created_at,
+    }
+
+
+def get_agent(
+    agent_id: str,
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> Optional[Dict[str, Any]]:
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM agents WHERE id = ? AND project_id = ?",
+            (agent_id, project_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def list_agents(
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM agents WHERE project_id = ? ORDER BY created_at ASC",
+            (project_id,),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 def log_audit(
     project_id: str,
     agent_id: str,

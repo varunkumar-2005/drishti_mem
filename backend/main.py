@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend.api.agents import router as agents_router
 from backend.api.memory import router as memory_router
 from backend.api.projects import router as projects_router
 from backend.config import get_settings
@@ -73,6 +74,7 @@ app.add_middleware(
 # Mount routers
 app.include_router(projects_router)
 app.include_router(memory_router)
+app.include_router(agents_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])

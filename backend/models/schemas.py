@@ -75,6 +75,49 @@ class AskResponse(BaseModel):
     model_used: str
 
 
+# --- Agent Models ---
+class AgentRegister(BaseModel):
+    id: Optional[str] = Field(default=None, description="Optional custom agent ID (e.g. agent-planner)")
+    name: str = Field(..., description="Agent display name")
+    role: str = Field(default="", description="Role or specialization (e.g. Planner, Builder, Validator)")
+
+
+class AgentResponse(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    role: str
+    created_at: str
+
+
+class AgentRunRequest(BaseModel):
+    task: str = Field(..., description="Task or prompt to execute with this agent")
+    context: Optional[str] = Field(default="", description="Additional optional contextual details")
+
+
+class AgentRunResponse(BaseModel):
+    agent_id: str
+    role: str
+    project_id: str
+    output: str
+    memories_recalled: List[MemoryItem] = []
+    memories_retained: List[str] = []
+
+
+# --- Validation Models ---
+class ValidateRequest(BaseModel):
+    draft: str = Field(..., description="Proposed decision, code snippet, or document to validate against memory")
+    check_topic: Optional[str] = Field(default=None, description="Optional topic hint for memory retrieval")
+
+
+class ValidateResponse(BaseModel):
+    valid: bool
+    analysis: str
+    contradictions: List[str]
+    citations: List[MemoryItem]
+    project_id: str
+
+
 # --- Health & Error ---
 class HealthResponse(BaseModel):
     status: str
