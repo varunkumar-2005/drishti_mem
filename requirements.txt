@@ -1,0 +1,19 @@
+# Core API framework
+fastapi
+uvicorn[standard]
+
+# Environment variable loading
+python-dotenv
+
+# Data validation + settings management (Pydantic v2)
+pydantic
+pydantic-settings
+
+# Async HTTP client
+httpx
+
+# Hindsight long-term memory client (https://hindsight.vectorize.io)
+hindsight-client
+
+# Groq LLM SDK
+groq
