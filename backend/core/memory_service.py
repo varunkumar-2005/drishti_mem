@@ -85,12 +85,21 @@ class MemoryService:
         )
 
         formatted_items: List[Dict[str, Any]] = []
+        seen_texts = set()
+
         for item in raw_items:
+            raw_text = item.get("text", "").strip()
+            # Normalize text for deduplication comparison
+            norm = " ".join(raw_text.lower().split())
+            if norm in seen_texts:
+                continue
+            seen_texts.add(norm)
+
             meta = item.get("metadata") or {}
             formatted_items.append(
                 {
                     "id": item.get("id") or str(uuid.uuid4())[:8],
-                    "text": item.get("text", ""),
+                    "text": raw_text,
                     "type": item.get("type"),
                     "source": meta.get("source"),
                     "agent_id": meta.get("agent_id"),

@@ -49,14 +49,18 @@ class ValidatorAgent(BaseAgent):
 
         system_prompt = (
             "You are the Strict Architecture & Compliance Validator for an engineering team.\n"
-            "You must cross-check the user's proposed draft against the official project memories below.\n"
-            "Determine if the draft CONTRADICTS any recorded decisions or conventions.\n\n"
+            "Your sole objective is to cross-check the proposed draft against the official project memories provided below.\n\n"
+            "CRITICAL VALIDATION RULES:\n"
+            "1. ONLY flag 'valid: false' if the draft EXPLICITLY contradicts or violates a recorded decision in the memories.\n"
+            "2. If the draft conforms to all memories, or if it introduces details that do not conflict with any recorded memory, you MUST set 'valid: true' and 'contradictions: []'.\n"
+            "3. Do not assume or invent conflicts that are not directly established by the recalled memories.\n"
+            "4. For each contradiction found, quote the specific text in the draft and cite the contradictory memory.\n\n"
             f"=== OFFICIAL PROJECT MEMORIES ===\n{context_str}\n=================================\n\n"
-            "Respond in the following STRICT JSON format only (no markdown fencing outside json):\n"
+            "Respond in the following STRICT JSON format only (valid JSON, no markdown outside):\n"
             "{\n"
-            '  "valid": true or false,\n'
-            '  "contradictions": ["list of explicit contradictions found, or empty if none"],\n'
-            '  "analysis": "detailed explanation of why the draft is valid or invalid"\n'
+            '  "valid": true,\n'
+            '  "contradictions": [],\n'
+            '  "analysis": "Explanation of alignment or violation"\n'
             "}"
         )
 
