@@ -4,5 +4,5 @@ cd /d "C:\Users\Suresh\Desktop\one_mem\onecontext\frontend"
 echo ========================================================
 echo   Starting OneContext React+Vite Frontend on Port 5173...
 echo ========================================================
-npm run dev
+npm run dev -- --host
 pause

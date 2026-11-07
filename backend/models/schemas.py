@@ -179,3 +179,117 @@ class HealthResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: str = ""
+
+
+# --- Team Room Models ---
+class TeamCreate(BaseModel):
+    name: str = Field(..., description="Name of the team room")
+    project_id: str = Field(..., description="Project ID associated with this team room")
+
+
+class TeamResponse(BaseModel):
+    id: str
+    name: str
+    join_code: str
+    project_id: str
+    created_at: str
+
+
+class TeamJoinRequest(BaseModel):
+    join_code: str = Field(..., description="6-character alphanumeric join code")
+    display_name: str = Field(..., description="Name of the team member joining")
+
+
+class TeamMemberResponse(BaseModel):
+    team_id: str
+    display_name: str
+    joined_at: str
+
+
+class TeamJoinResponse(BaseModel):
+    team: TeamResponse
+    project_id: str
+    member: TeamMemberResponse
+
+
+class TeamMessageCreate(BaseModel):
+    sender: str = Field(..., description="Name of the team member or agent sending the message")
+    role: str = Field(default="developer", description="Role: architect, frontend, backend, validator, etc.")
+    message: str = Field(..., description="Message text or code update description")
+    message_type: str = Field(default="chat", description="Type: chat, decision, code_change, alert")
+    retain_as_memory: bool = Field(default=False, description="Whether to also index this into project Hindsight memory")
+
+
+class TeamMessageResponse(BaseModel):
+    id: str
+    team_id: str
+    sender: str
+    role: str
+    message: str
+    message_type: str
+    timestamp: str
+
+
+class TeamCodeActionRequest(BaseModel):
+    instruction: str = Field(..., description="Prompt or instruction for changing the code")
+    current_code: str = Field(..., description="Existing code in the active editor")
+    filename: str = Field(default="auth/login_service.py", description="Name of the file being edited")
+    author: str = Field(default="Alice (Auth)", description="Developer or agent making the change")
+
+
+class TeamCodeActionResponse(BaseModel):
+    new_code: str
+    explanation: str
+    memories_recalled: List[Dict[str, Any]] = []
+    validation: Dict[str, Any]
+    status: str = "success"
+
+
+# --- Context Pack, Ingestion, and Capture Models ---
+class IngestRequest(BaseModel):
+    text: str = Field(..., description="Document text or markdown to ingest")
+    source_type: str = Field(default="doc", description="Source type: doc | decision | chat_export | note")
+    source_name: str = Field(..., description="Filename or identifier for the source")
+
+
+class IngestResponse(BaseModel):
+    project_id: str
+    source_name: str
+    source_type: str
+    chunks_total: int
+    chunks_retained: int
+    chunks_skipped: int
+    status: str = "success"
+
+
+class ContextPackRequest(BaseModel):
+    task: str = Field(..., description="Task or prompt the assistant will perform")
+    target: str = Field(default="generic", description="Target assistant: chatgpt | claude | cursor | codex | generic")
+    max_chars: int = Field(default=3000, ge=100, description="Maximum characters allowed in the context pack")
+
+
+class ContextPackResponse(BaseModel):
+    project_id: str
+    project_name: str
+    target: str
+    pack: str
+    sources_used: List[Dict[str, Any]] = []
+    char_count: int
+    task: str
+
+
+class CaptureRequest(BaseModel):
+    text: str = Field(..., description="Decision or fact to capture")
+    source_name: str = Field(default="manual_capture", description="Name/source identifier")
+
+
+class CaptureResponse(BaseModel):
+    memory_id: str
+    project_id: str
+    source_name: str
+    timestamp: str
+    conflict: Optional[ConflictDetail] = None
+    has_conflict: bool = False
+
+
+

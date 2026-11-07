@@ -38,7 +38,7 @@ export default function Dashboard({ activeProject, setActiveProject }) {
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.heading}>OneContext Dashboard</h1>
-          <p style={styles.subheading}>One Project. One Long-Term Memory. Every Agent.</p>
+          <p style={styles.subheading}>One project. One memory. Every AI assistant.</p>
         </div>
 
         <div style={styles.projectSelectorBox}>

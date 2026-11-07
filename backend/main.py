@@ -16,6 +16,7 @@ from backend.api.agents import router as agents_router
 from backend.api.audit import router as audit_router
 from backend.api.memory import router as memory_router
 from backend.api.projects import router as projects_router
+from backend.api.teams import router as teams_router
 from backend.config import get_settings
 from backend.core.hindsight_client import HindsightWrapper
 from backend.core.llm_client import LLMClient
@@ -77,6 +78,7 @@ app.include_router(projects_router)
 app.include_router(memory_router)
 app.include_router(agents_router)
 app.include_router(audit_router)
+app.include_router(teams_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])

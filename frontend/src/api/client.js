@@ -5,7 +5,8 @@
 
 import axios from "axios";
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -117,6 +118,87 @@ export const validateDraft = async (projectId, { draft, check_topic }) => {
 // --- Audit Trail ---
 export const getAudit = async (projectId, limit = 50) => {
   const res = await api.get(`/projects/${projectId}/audit?limit=${limit}`);
+  return res.data;
+};
+
+// --- Team Rooms ---
+export const createTeam = async ({ name, project_id }) => {
+  const res = await api.post("/teams", { name, project_id });
+  return res.data;
+};
+
+export const joinTeam = async ({ join_code, display_name }) => {
+  const res = await api.post("/teams/join", { join_code, display_name });
+  return res.data;
+};
+
+export const listTeamMembers = async (teamId) => {
+  const res = await api.get(`/teams/${teamId}/members`);
+  return res.data;
+};
+
+export const sendTeamMessage = async (teamId, { sender, role, message, message_type = "chat", retain_as_memory = false }) => {
+  const res = await api.post(`/teams/${teamId}/messages`, {
+    sender,
+    role,
+    message,
+    message_type,
+    retain_as_memory,
+  });
+  return res.data;
+};
+
+export const listTeamMessages = async (teamId, limit = 100) => {
+  const res = await api.get(`/teams/${teamId}/messages?limit=${limit}`);
+  return res.data;
+};
+
+export const seedTeamDemo = async (teamId) => {
+  const res = await api.post(`/teams/${teamId}/seed-demo`);
+  return res.data;
+};
+
+export const generateTeamCode = async (teamId, { instruction, current_code, filename, author }) => {
+  const res = await api.post(`/teams/${teamId}/generate-code`, {
+    instruction,
+    current_code,
+    filename,
+    author,
+  });
+  return res.data;
+};
+
+// --- Context Packs & Ingestion ---
+export const getContextPack = async (projectId, { task, target = "generic", max_chars = 3000 }) => {
+  const res = await api.post(`/projects/${projectId}/context-pack`, {
+    task,
+    target,
+    max_chars,
+  });
+  return res.data;
+};
+
+export const ingestText = async (projectId, { text, source_type = "doc", source_name }) => {
+  const res = await api.post(`/projects/${projectId}/ingest`, {
+    text,
+    source_type,
+    source_name,
+  });
+  return res.data;
+};
+
+export const ingestFile = async (projectId, formData) => {
+  const res = await api.post(`/projects/${projectId}/ingest-file`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
+export const captureDecision = async (projectId, { text, source_name = "manual_capture" }) => {
+  const res = await api.post(`/projects/${projectId}/capture`, {
+    text,
+    source_name,
+  });
   return res.data;
 };
 

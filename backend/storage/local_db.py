@@ -7,6 +7,8 @@ Real long-term memory stays in Hindsight.
 from __future__ import annotations
 
 import sqlite3
+import secrets
+import string
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,6 +80,57 @@ def init_db(db_path: Optional[str | Path] = None) -> None:
                 new_memory_id TEXT NOT NULL,
                 reason TEXT,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teams (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                join_code TEXT UNIQUE NOT NULL,
+                project_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS team_members (
+                team_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                joined_at TEXT NOT NULL,
+                FOREIGN KEY (team_id) REFERENCES teams(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS team_messages (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'developer',
+                message TEXT NOT NULL,
+                message_type TEXT NOT NULL DEFAULT 'chat',
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (team_id) REFERENCES teams(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingested_chunks (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                chunk_text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(project_id, content_hash),
+                FOREIGN KEY (project_id) REFERENCES projects(id)
             )
             """
         )
@@ -324,6 +377,232 @@ def get_corrections(
         cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM corrections WHERE project_id = ? ORDER BY created_at DESC",
+            (project_id,),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+def generate_join_code(length: int = 6) -> str:
+    """Generate a unique 6-character alphanumeric uppercase join code."""
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def create_team(
+    name: str,
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Create a new team room with a unique 6-character join code."""
+    team_id = str(uuid.uuid4())[:8]
+    created_at = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        for _ in range(10):
+            join_code = generate_join_code(6)
+            cursor.execute("SELECT id FROM teams WHERE join_code = ?", (join_code,))
+            if not cursor.fetchone():
+                break
+        else:
+            raise RuntimeError("Could not generate a unique join code")
+
+        cursor.execute(
+            """
+            INSERT INTO teams (id, name, join_code, project_id, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (team_id, name.strip(), join_code, project_id, created_at),
+        )
+        conn.commit()
+    return {
+        "id": team_id,
+        "name": name.strip(),
+        "join_code": join_code,
+        "project_id": project_id,
+        "created_at": created_at,
+    }
+
+
+def get_team_by_code(
+    join_code: str,
+    db_path: Optional[str | Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Retrieve team by its 6-character join code."""
+    code = join_code.strip().upper()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM teams WHERE UPPER(join_code) = ?",
+            (code,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def get_team_by_id(
+    team_id: str,
+    db_path: Optional[str | Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Retrieve team by ID."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM teams WHERE id = ?",
+            (team_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def add_team_member(
+    team_id: str,
+    display_name: str,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Add a member to a team room."""
+    joined_at = datetime.now(timezone.utc).isoformat()
+    name = display_name.strip()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO team_members (team_id, display_name, joined_at)
+            VALUES (?, ?, ?)
+            """,
+            (team_id, name, joined_at),
+        )
+        conn.commit()
+    return {
+        "team_id": team_id,
+        "display_name": name,
+        "joined_at": joined_at,
+    }
+
+
+def list_team_members(
+    team_id: str,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """List all members who joined a team room."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT team_id, display_name, joined_at FROM team_members WHERE team_id = ? ORDER BY joined_at ASC",
+            (team_id,),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_team_message(
+    team_id: str,
+    sender: str,
+    message: str,
+    role: str = "developer",
+    message_type: str = "chat",
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Store a team chat or decision message."""
+    msg_id = str(uuid.uuid4())[:8]
+    ts = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO team_messages (id, team_id, sender, role, message, message_type, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (msg_id, team_id, sender.strip(), role.strip(), message.strip(), message_type.strip(), ts),
+        )
+        conn.commit()
+    return {
+        "id": msg_id,
+        "team_id": team_id,
+        "sender": sender.strip(),
+        "role": role.strip(),
+        "message": message.strip(),
+        "message_type": message_type.strip(),
+        "timestamp": ts,
+    }
+
+
+def list_team_messages(
+    team_id: str,
+    limit: int = 100,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """List latest messages in a team room."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM team_messages
+            WHERE team_id = ?
+            ORDER BY timestamp ASC
+            LIMIT ?
+            """,
+            (team_id, limit),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+def is_chunk_ingested(
+    project_id: str,
+    content_hash: str,
+    db_path: Optional[str | Path] = None,
+) -> bool:
+    """Check if a chunk hash already exists for this project."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM ingested_chunks WHERE project_id = ? AND content_hash = ?",
+            (project_id, content_hash),
+        )
+        return cursor.fetchone() is not None
+
+
+def record_ingested_chunk(
+    project_id: str,
+    content_hash: str,
+    source_name: str,
+    source_type: str,
+    chunk_text: str,
+    db_path: Optional[str | Path] = None,
+) -> bool:
+    """Record an ingested chunk hash. Returns True if inserted, False if already exists."""
+    chunk_id = str(uuid.uuid4())[:8]
+    created_at = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO ingested_chunks (id, project_id, content_hash, source_name, source_type, chunk_text, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (chunk_id, project_id, content_hash, source_name, source_type, chunk_text, created_at),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def list_ingested_chunks(
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """List all ingested chunks for a project."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM ingested_chunks WHERE project_id = ? ORDER BY created_at ASC",
             (project_id,),
         )
         rows = cursor.fetchall()

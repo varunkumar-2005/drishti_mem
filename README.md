@@ -1,8 +1,8 @@
 # OneContext
 
-> **One project. One memory. Every agent.**
+> **One project. One memory. Every AI assistant.**
 
-OneContext is an institutional memory platform for multi-agent software engineering systems. It provides a shared, searchable, and collision-resistant memory bank for all AI agents and developers working on a codebase, powered by **Vectorize Hindsight Cloud** and **Groq**.
+OneContext is a project memory platform for software engineering. It provides a shared, searchable, and collision-resistant memory bank in **Vectorize Hindsight Cloud** that any AI assistant (ChatGPT, Claude, Cursor, Codex) can use through compact, accurate context packs.
 
 ---
 

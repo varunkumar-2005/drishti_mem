@@ -5,15 +5,20 @@ import ProjectCreate from "./pages/ProjectCreate";
 import Agents from "./pages/Agents";
 import MemoryExplorer from "./pages/MemoryExplorer";
 import SearchHistory from "./pages/SearchHistory";
+import Team from "./pages/Team";
+import ContextPack from "./pages/ContextPack";
 
 export default function App() {
   const [activeProject, setActiveProject] = useState(null);
+  const [currentTeam, setCurrentTeam] = useState(null);
   const location = useLocation();
 
   const navLinks = [
-    { path: "/", label: "Dashboard" },
+    { path: "/", label: "Context Packs" },
+    { path: "/dashboard", label: "Dashboard" },
     { path: "/memory", label: "Memory Explorer" },
-    { path: "/agents", label: "Agents" },
+    { path: "/agents", label: "Simulated Assistants (demo)" },
+    { path: "/team", label: "Team Room" },
     { path: "/history", label: "Audit Trail" },
   ];
 
@@ -62,6 +67,10 @@ export default function App() {
         <Routes>
           <Route
             path="/"
+            element={<ContextPack activeProject={activeProject} setActiveProject={setActiveProject} />}
+          />
+          <Route
+            path="/dashboard"
             element={<Dashboard activeProject={activeProject} setActiveProject={setActiveProject} />}
           />
           <Route
@@ -79,6 +88,17 @@ export default function App() {
           <Route
             path="/history"
             element={<SearchHistory activeProject={activeProject} />}
+          />
+          <Route
+            path="/team"
+            element={
+              <Team
+                activeProject={activeProject}
+                setActiveProject={setActiveProject}
+                currentTeam={currentTeam}
+                setCurrentTeam={setCurrentTeam}
+              />
+            }
           />
         </Routes>
       </main>
