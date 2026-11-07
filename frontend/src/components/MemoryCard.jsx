@@ -18,7 +18,7 @@ export default function MemoryCard({ item }) {
         </div>
         {item.score !== undefined && item.score !== null && (
           <span style={styles.scoreBadge}>
-            {(item.score * 100).toFixed(0)}% match
+            Score: {Number(item.score).toFixed(2)}
           </span>
         )}
       </div>

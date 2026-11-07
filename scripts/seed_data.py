@@ -189,9 +189,11 @@ SEED_MEMORIES = [
 ]
 
 
-def seed():
+def seed(target_project_id: str = PROJECT_ID):
+    target_bank_id = f"onecontext-{target_project_id}"
+
     print("=" * 70)
-    print("  ONECONTEXT SEED DATA GENERATOR (APEXPAY TECHNOLOGIES)")
+    print(f"  ONECONTEXT SEED DATA GENERATOR ({target_project_id.upper()})")
     print("=" * 70)
 
     settings = get_settings()
@@ -202,22 +204,22 @@ def seed():
     service = MemoryService(hindsight=hindsight, llm=llm, db_module=local_db)
 
     # 1. Ensure project exists
-    existing = local_db.get_project(PROJECT_ID)
+    existing = local_db.get_project(target_project_id)
     if not existing:
         hindsight.create_bank(
-            bank_id=BANK_ID,
-            name="ApexPay Core Banking & Payment Engine",
+            bank_id=target_bank_id,
+            name=f"ApexPay Platform ({target_project_id})",
             mission="Payment processing, ledger accounting, and compliance memory bank.",
         )
         local_db.create_project(
-            project_id=PROJECT_ID,
+            project_id=target_project_id,
             name="ApexPay Payments Platform",
             description="Core payment processing, risk engine, and dual-officer compliance ledger.",
-            bank_id=BANK_ID,
+            bank_id=target_bank_id,
         )
-        print(f"[Project] Created '{PROJECT_ID}' with Hindsight bank '{BANK_ID}'")
+        print(f"[Project] Created '{target_project_id}' with Hindsight bank '{target_bank_id}'")
     else:
-        print(f"[Project] Using existing project '{PROJECT_ID}'")
+        print(f"[Project] Using existing project '{target_project_id}'")
 
     # 2. Register key agents
     agents_to_register = [
@@ -230,39 +232,51 @@ def seed():
         ("agent-validator", "QA & Compliance Auditor", "Validator"),
     ]
     for aid, name, role in agents_to_register:
-        local_db.register_agent(aid, PROJECT_ID, name, role)
-    print(f"[Agents] Registered {len(agents_to_register)} agents for '{PROJECT_ID}'.")
+        local_db.register_agent(aid, target_project_id, name, role)
+    print(f"[Agents] Registered {len(agents_to_register)} agents for '{target_project_id}'.")
 
-    # 3. Retain each seed memory
+    # 3. Retain memories idempotently
+    existing_audit = local_db.get_audit(target_project_id, limit=500)
+    already_retained = {a["query_or_text"] for a in existing_audit if a["action"] == "retain"}
+
     print(f"\n[Seeding] Ingesting {len(SEED_MEMORIES)} realistic fintech decisions...")
     now = datetime.now(timezone.utc)
+    newly_retained_count = 0
 
     for idx, item in enumerate(SEED_MEMORIES, 1):
-        ts = (now + timedelta(days=item["date_offset_days"])).isoformat()
+        if item["text"] in already_retained:
+            print(f"  [{idx:02d}/18] [{item['agent_id']}] ({item['source']}) -> Already exists, skipped.")
+            continue
+
         res = service.retain(
-            project_id=PROJECT_ID,
-            bank_id=BANK_ID,
+            project_id=target_project_id,
+            bank_id=target_bank_id,
             text=item["text"],
             agent_id=item["agent_id"],
             source=item["source"],
         )
+        newly_retained_count += 1
         print(f"  [{idx:02d}/18] [{item['agent_id']}] ({item['source']}) -> Retained")
 
-    print("\n[Hindsight] Waiting 5 s for indexing...")
-    time.sleep(5)
+    if newly_retained_count > 0:
+        print(f"\n[Hindsight] Waiting 5 s for indexing {newly_retained_count} new memories...")
+        time.sleep(5)
+    else:
+        print("\n[Hindsight] No new memories needed retention (already fully seeded).")
 
     # Verify recall
     sample_query = "What is our policy for transactions above $10,000?"
-    sample_results = service.recall(PROJECT_ID, BANK_ID, sample_query, max_results=3)
+    sample_results = service.recall(target_project_id, target_bank_id, sample_query, max_results=3)
     print(f"\n[Verification Query] '{sample_query}'")
     print(f"Recalled {len(sample_results)} results:")
     for r in sample_results:
         print(f"  - (Author: {r.get('agent_id')}) {r.get('text')[:100]}...")
 
     print("\n" + "=" * 70)
-    print("  SEEDING COMPLETE: 18 REALISTIC MEMORIES COMMITTED TO HINDSIGHT")
+    print(f"  SEEDING COMPLETE ({newly_retained_count} added, {len(SEED_MEMORIES) - newly_retained_count} preserved)")
     print("=" * 70)
 
 
 if __name__ == "__main__":
-    seed()
+    proj_arg = sys.argv[1] if len(sys.argv) > 1 else PROJECT_ID
+    seed(proj_arg)
