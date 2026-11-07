@@ -7,21 +7,29 @@ This is the ONLY file in the project that imports hindsight_client.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from typing import Any, Dict, List, Optional
 from hindsight_client import Hindsight
 
 
 class HindsightWrapper:
-    """Wrapper around the Hindsight long-term memory client."""
+    """Wrapper around the Hindsight long-term memory client with thread-local session management."""
 
     def __init__(self, settings):
         self.base_url = settings.hindsight_base_url
         self.api_key = settings.hindsight_api_key
-        self.client = Hindsight(
-            base_url=self.base_url,
-            api_key=self.api_key,
-        )
+        self._local = threading.local()
+
+    @property
+    def client(self) -> Hindsight:
+        """Get or initialize thread-local Hindsight client to avoid asyncio loop mismatch across threads."""
+        if not hasattr(self._local, "client") or self._local.client is None:
+            self._local.client = Hindsight(
+                base_url=self.base_url,
+                api_key=self.api_key,
+            )
+        return self._local.client
 
     def close(self) -> None:
         """Cleanly close any underlying client sessions to avoid unclosed connector warnings."""

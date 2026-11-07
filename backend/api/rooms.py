@@ -203,9 +203,10 @@ def catch_up_member(
     )
 
     try:
-        summary = llm.generate_response(
+        summary, _ = llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
+            max_tokens=600,
         )
     except Exception as ex:
         logger.error(f"Error calling LLM for catch-up: {ex}")
