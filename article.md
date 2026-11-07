@@ -1,347 +1,221 @@
 # My Teammate Changed the API; Hindsight Told My Assistant
 
-Last Tuesday, our backend lead updated our payment webhook retry contract, bumping our exponential backoff ceiling from five seconds to sixty seconds and mandating timestamp anti-replay validation. Ten minutes later, another engineer on our team opened Cursor to scaffold downstream webhook consumers, and their assistant generated code with five-second timeouts and no replay checks. 
+To test an idea, I staged a small scene. I opened two browser windows side by side and joined both to the same project room—one as "Alice" and one as "Bob". As Bob, I recorded an architecture decision: outbound merchant webhooks must use HMAC-SHA256 signatures with a 300-second timestamp drift window. Within a few seconds, it appeared in Alice’s feed. When Alice asked her assistant to generate a context pack for "write the webhook verification middleware", the new HMAC signing rule was already in the prompt.
 
-In almost every engineering team using modern generative tools, this scenario plays out daily: developers work with isolated AI assistants—Cursor, Claude Code, ChatGPT, Copilot—each trapped inside its own private context window. When an architect writes an Architecture Decision Record (ADR), updates a schema, or pushes an edge-case fix, other teammates' coding assistants have no idea. The result is silent architectural drift, broken contracts, and hours wasted reconciling pull requests.
+That is the problem I built OneContext to solve. Software engineers routinely work with multiple AI assistants (Cursor, Claude, ChatGPT, Copilot), yet each assistant only knows what you have pasted into it. When a teammate changes an API contract or records an architecture decision, your assistant has no idea until code review.
 
-We set out to fix this by building **OneContext**: an open architecture that gives every developer and every AI assistant on a project access to a single, real-time institutional memory bank. By anchoring our system on [Vectorize agent memory](https://vectorize.io/what-is-agent-memory) and the open-source [Hindsight](https://github.com/vectorize-io/hindsight) engine, we turned scattered developer context into an automatically synchronizing, conflict-aware knowledge plane.
+OneContext gives a development team one shared project memory built on [Hindsight](https://github.com/vectorize-io/hindsight), an open-source agent memory engine from Vectorize. Here is how it works, the bugs I hit, and what doesn't work yet.
 
-Here is how we designed the system, the edge cases we hit when coordinating real-time memory across parallel IDEs, and the code patterns that made it work.
+## How It Fits Together
 
----
+The core design is simple: one project, one memory bank, every AI assistant. Instead of writing editor plugins for every IDE, OneContext is a small backend that produces bounded text blocks you can paste into any assistant.
 
-## What the System Does and How It Hangs Together
+* **Hindsight holds the memory.** Each project maps to one Hindsight bank. Decisions, ingested documents, and synced GitHub commits are retained there with metadata (source, author, timestamp). The [Hindsight docs](https://hindsight.vectorize.io/) explain how banks, retain, and semantic recall work together.
+* **SQLite holds the bookkeeping.** Team rooms with six-character join codes, an event feed, an audit trail, and supersession links live in SQLite. It stores no embeddings, delegating semantic search to Hindsight.
+* **FastAPI pushes updates.** When someone saves a decision or a commit is synced, the backend broadcasts an event over Server-Sent Events. If the stream drops, the client falls back to polling every few seconds.
+* **Context packs go out.** For any task, OneContext recalls relevant memories and builds a compact block to paste into Cursor, ChatGPT, or Claude.
 
-The goal of OneContext is simple: **One project. One memory. Every AI assistant.** 
+[SCREENSHOT: architecture diagram showing members, FastAPI, Hindsight, SQLite, Groq, and the context pack going to an assistant]
 
-Rather than building fragile editor plugins that try to intercept every keystroke, we designed OneContext as a lightweight, centralized memory orchestrator that interfaces with whichever tools developers already use.
+## Why Plain Vector Search Wasn't Enough
 
-The architecture comprises four core layers:
+A plain similarity search over project documentation has three distinct weaknesses for engineering context:
 
-1. **Long-Term Memory Bank ([Hindsight](https://github.com/vectorize-io/hindsight))**: Every repository maps to exactly one isolated Hindsight bank (e.g., `onecontext-payments-core`). Every architectural decision, ingested specification chunk, and synchronized GitHub commit is retained here with rich metadata (`source_type`, `author`, `sha`, `timestamp`).
-2. **Local Operational Metadata (SQLite)**: SQLite handles lightweight presence, team rooms with six-character join codes, audit logs, and supersession links. It does not store raw embeddings or semantic indexes; that stays in Hindsight.
-3. **Real-Time Context Stream (FastAPI + Server-Sent Events)**: When any team member or automated worker captures a decision, ingests a document, or synchronizes a commit, an in-memory pub/sub broadcaster pushes the event to all connected teammates in under a second over SSE.
-4. **Context Pack Engine**: Instead of forcing developers to leave their IDEs, OneContext compiles bounded, token-budgeted "Context Packs" tailored for Cursor rules, ChatGPT, or Claude. Teammates paste or pipe these packs directly into their prompts, guaranteeing their assistant builds against verified decisions.
+1. **It cannot distinguish active decisions from replaced ones.** If a team picked PostgreSQL in January and migrated financial ledgers to CockroachDB in June, a query about ledger storage retrieves both notes because the keywords match. Because plain similarity scores semantic closeness rather than validity, assistants frequently cite obsolete rules.
+2. **Context windows have a cost.** Ingesting dozens of raw specification files wastes tokens on rules unrelated to the task. What assistants require is a bounded list of relevant decisions.
+3. **Contradictions go unnoticed.** If one document specifies snake_case parameters while another specifies camelCase, storing both leaves two incompatible truths in the database without warning.
 
----
+OneContext adds three mechanisms on top of Hindsight: conflict checks at write time, explicit supersession, and length-bounded context compilation.
 
-## The Core Technical Challenge: Why Naive RAG Fails for Engineering Context
+## Under the Hood
 
-When software engineers think about giving AI tools memory, the default reaction is usually: *"Just throw our markdown files into a vector database with LangChain."*
+### 1. A Thread-Safe Hindsight Client
 
-We tried that early on. It falls apart in a real software team for three specific reasons:
-
-### 1. Vector Similarity Has No Concept of Supersession
-In software engineering, facts expire. In January, the team decides on PostgreSQL. In March, they evaluate Cassandra and reject it. In June, they migrate transactional ledger tables to CockroachDB. 
-
-Under naive cosine similarity search, an engineer asking *"What database do we use for the ledger?"* frequently pulls the January PostgreSQL document or the Cassandra evaluation because those chunks contain high keyword overlap. Naive vector search cannot distinguish an active decision from an obsolete one.
-
-### 2. Context Window Bloat and Prompt Fatigue
-Dumping twenty architecture documents into a `.cursorrules` or `.systemprompt` file degrades autocomplete speed and burns tokens on irrelevant rules. Context must be filtered by relevance to the specific task and capped strictly to a budget (e.g., 3,000 characters).
-
-### 3. Silent Contradictions
-If a frontend engineer retains a note claiming an API endpoint uses snake_case, while the backend spec enforces camelCase, storing both creates a split-brain environment where assistants generate incompatible code on both sides of the boundary.
-
-To solve this, we used [Hindsight docs](https://hindsight.vectorize.io/) to implement write-time conflict detection, explicit fact supersession, and clean memory recall.
-
----
-
-## Code-Backed Implementation: How It Works Under the Hood
-
-### 1. Resilient Thread-Local Client Management
-OneContext is built on FastAPI and Python 3.13. Vectorize's Python SDK uses `aiohttp` for high-throughput HTTP connections. However, FastAPI handles synchronous route execution by offloading calls to worker threads via `anyio.to_thread.run_sync`. 
-
-When an `aiohttp` ClientSession is initialized on the main application event loop during startup, and a subsequent worker thread attempts to run a synchronous recall or retain via an internal event loop, `aiohttp`'s internal timer triggers a `RuntimeError("Timeout context manager should be used inside a task")`.
-
-To solve this across all endpoints, we wrapped Hindsight with a thread-local proxy in `backend/core/hindsight_client.py`:
+FastAPI hands synchronous routes to worker threads. The Hindsight Python client uses `aiohttp` internally, and a client created during server startup broke when invoked from a worker thread. It threw a `RuntimeError` stating that the timeout context manager must run inside a task. The fix was a wrapper creating one client per thread:
 
 ```python
 # backend/core/hindsight_client.py
-from __future__ import annotations
 import threading
 from hindsight_client import Hindsight
+from backend.core.config import Settings
 
 class HindsightWrapper:
-    """Wrapper around Hindsight client with thread-local session management."""
-
-    def __init__(self, settings):
+    def __init__(self, settings: Settings):
         self.base_url = settings.hindsight_base_url
         self.api_key = settings.hindsight_api_key
         self._local = threading.local()
 
     @property
     def client(self) -> Hindsight:
-        """Get or initialize thread-local Hindsight client to avoid loop mismatches."""
         if not hasattr(self._local, "client") or self._local.client is None:
             self._local.client = Hindsight(
                 base_url=self.base_url,
                 api_key=self.api_key,
             )
         return self._local.client
-
-    def recall(self, bank_id: str, query: str, max_results: int = 10):
-        response = self.client.recall(bank_id=bank_id, query=query)
-        results = getattr(response, "results", []) or []
-        return [
-            {
-                "id": getattr(item, "id", ""),
-                "text": getattr(item, "text", ""),
-                "score": getattr(getattr(item, "scores", None), "semantic", None),
-            }
-            for item in results[:max_results]
-        ]
 ```
 
-This guarantees that each worker thread maintains its own active session, eliminating cross-thread loop collisions while keeping response latencies under 200ms.
+All Hindsight calls route through this module, isolating memory operations to one clean interface.
 
----
+### 2. Conflict Checking at Write Time
 
-### 2. Write-Time Conflict Detection and Event Broadcasting
-When an engineer captures a decision, OneContext does not simply append the text blindly. It recalls the top three nearest semantic facts from Hindsight and evaluates whether the new statement contradicts existing institutional policies.
-
-Here is the retention logic from `backend/core/memory_service.py`:
+Before retaining a decision, OneContext recalls the three most similar existing memories and prompts an LLM at temperature 0.0 to check whether the new text contradicts an earlier decision:
 
 ```python
-# backend/core/memory_service.py
-def retain(
-    self,
-    project_id: str,
-    bank_id: str,
-    text: str,
-    agent_id: str = "user",
-    source: str = "note",
-    check_conflict: bool = True,
-    metadata: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
-    now_iso = datetime.now(timezone.utc).isoformat()
-    conflict_info = None
-
-    if check_conflict:
-        existing = self.recall(
-            project_id=project_id,
-            bank_id=bank_id,
-            query=text,
-            max_results=3,
-            include_superseded=False,
-        )
-        detected = self.conflict_detector.detect_conflict(text, existing)
-        if detected.get("has_conflict"):
-            conflict_info = detected
-            c_mem = detected.get("conflicting_memory") or {}
-            
-            # Record conflict warning event in live room feed
-            c_event = self.db.record_event(
-                project_id=project_id,
-                type="conflict",
-                title="Memory Conflict Warning",
-                body=f"Statement '{text}' conflicts with prior decision: '{c_mem.get('text', '')}'",
-                author=agent_id,
-            )
-            if c_event:
-                broadcaster.publish_nowait(project_id, c_event)
-
-    # Retain fact in Vectorize Hindsight bank
-    memory_id = self.hindsight.retain(
-        bank_id=bank_id,
-        text=text,
-        metadata={**(metadata or {}), "source": source, "author": agent_id},
-    )
-
-    # Broadcast standard decision event to teammates
-    event_type = "decision" if source in ("decision", "note", "user") else "document"
-    d_event = self.db.record_event(
-        project_id=project_id,
-        type=event_type,
-        title=text[:80] + ("..." if len(text) > 80 else ""),
-        body=text,
-        author=agent_id,
-    )
-    if d_event:
-        broadcaster.publish_nowait(project_id, d_event)
-
-    return {"memory_id": memory_id, "conflict": conflict_info}
-```
-
-If a contradiction is detected, an alert card immediately streams over SSE to every open browser window in the team room, preventing teammates from proceeding on contradictory assumptions.
-
----
-
-### 3. Explicit Memory Corrections and Supersession
-When a policy legitimately changes, an engineer can supersede an obsolete decision. We track the supersession in Hindsight metadata and locally in SQLite to ensure subsequent recall queries purge stale observations:
-
-```python
-# backend/features/corrections.py
-def correct(
-    self,
-    project_id: str,
-    bank_id: str,
-    old_memory_id: str,
-    new_text: str,
-    agent_id: str = "user",
-    reason: str = "",
-    old_memory_text: str = "",
-) -> Dict[str, Any]:
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    # 1. Retain replacement memory in Hindsight with supersedes link
-    retain_res = self.service.retain(
+# backend/core/memory_service.py (trimmed)
+if check_conflict:
+    existing = self.recall(
         project_id=project_id,
         bank_id=bank_id,
-        text=new_text,
-        agent_id=agent_id,
-        source="correction",
-        check_conflict=False,  # deliberate update
-        metadata={
-            "supersedes": old_memory_id,
-            "superseded_text": old_memory_text[:200] if old_memory_text else "",
-            "correction_reason": reason,
-        },
-    )
-
-    # 2. Persist supersession relationship to filter out derived facts
-    self.db.record_correction(
-        project_id=project_id,
-        old_memory_id=old_memory_id,
-        new_memory_id=retain_res["memory_id"],
-        reason=reason,
-        old_memory_text=old_memory_text,
-        created_at=now_iso,
-    )
-    return {"status": "corrected", "new_memory_id": retain_res["memory_id"]}
-```
-
----
-
-### 4. Compiling Clean, Assistant-Specific Context Packs
-Rather than dumping an entire chat transcript into a prompt, our Context Pack generator queries Hindsight for the task at hand, removes superseded decisions, deduplicates redundant text chunks, and formats the result cleanly within a strict character boundary:
-
-```python
-# backend/api/memory.py
-@router.post("/context-pack", response_model=ContextPackResponse)
-def get_context_pack(
-    project_id: str,
-    payload: ContextPackRequest,
-    memory_service=Depends(get_memory_service),
-) -> ContextPackResponse:
-    project = get_project_or_404(project_id)
-    bank_id = project["bank_id"]
-
-    recalled = memory_service.recall(
-        project_id=project_id,
-        bank_id=bank_id,
-        query=payload.task,
-        max_results=15,
+        query=text,
+        max_results=3,
         include_superseded=False,
     )
-
-    superseded_info = local_db.get_superseded_info(project_id)
-    active_facts = []
-    seen = set()
-
-    for m in recalled:
-        m_id = m.get("id")
-        m_text = m.get("text", "").strip()
-        if not m_text or m_id in superseded_info["ids"]:
-            continue
-        if m_text.lower() in seen:
-            continue
-        seen.add(m_text.lower())
-        active_facts.append(m_text)
-
-    # Format into assistant-specific wrappers (Cursor rules vs ChatGPT)
-    facts_block = "\n".join([f"- {fact}" for fact in active_facts])
-    if payload.target.lower() == "cursor":
-        pack_text = (
-            f"# Cursor Project Rules: {project['name']}\n"
-            f"# Key decisions relevant to: {payload.task}\n"
-            f"{facts_block}\n# END RULES\n\n{payload.task}"
+    detected = self.conflict_detector.detect_conflict(text, existing)
+    if detected.get("has_conflict"):
+        conflict_info = detected
+        event = self.db.record_event(
+            project_id=project_id,
+            type="conflict",
+            title="Memory Conflict Warning",
+            body=f"Contradiction detected: {detected.get('reason', '')}",
+            author=agent_id,
         )
-    else:
-        pack_text = (
-            f"[PROJECT CONTEXT: {project['name']}]\n"
-            f"Key decisions and facts relevant to: {payload.task}\n"
-            f"{facts_block}\n[END CONTEXT]\n\n{payload.task}"
-        )
+        broadcaster.publish_nowait(project_id, event)
 
-    return ContextPackResponse(
-        project_id=project_id,
-        project_name=project["name"],
-        target=payload.target,
-        pack=pack_text[:payload.max_chars],
-        char_count=len(pack_text[:payload.max_chars]),
-        task=payload.task,
-    )
+memory_id = self.hindsight.retain(
+    bank_id=bank_id,
+    text=text,
+    metadata={**(metadata or {}), "source": source, "author": agent_id},
+)
 ```
 
----
+The system warns but does not block. In software engineering, exceptions and gradual transitions are normal. Halting writes would obstruct work; instead, a conflict event alerts the room so the team can decide which decision stands.
 
-## Results in Action: What Happens in a Real Team Room
+[SCREENSHOT: conflict warning card showing the old and new decision side by side]
 
-Here is how this behaves during everyday development:
+### 3. Corrections That Supersede Obsolete Decisions
 
-### 1. Zero-Friction Multi-User Sync
-Engineer Alice creates a team room called `Payments Core` and receives a 6-character code (`1HQ7HE`). Teammate Bob enters that code in a separate browser window. 
+When a decision changes, the correction retains the new text with a `supersedes` link and records the pair in SQLite:
 
-Alice’s sidebar immediately lights up with a green presence indicator: `🟢 Bob (online)`. Both engineers are now pointing to the exact same Hindsight memory bank.
-
-### 2. Live Broadcast of Architectural Decisions
-Bob receives an update from third-party payment partner Stripe regarding webhook verification. In his right panel, he captures:
-> *"All outbound merchant webhooks must use HMAC-SHA256 signatures with timestamp anti-replay validation within a 300-second drift window."*
-
-Within **600 milliseconds**, the decision streams across SSE into Alice's Live Context Feed with a purple `DECISION` badge and Bob's name.
-
-### 3. Immediate Catch-Up Summaries
-When teammate Carol returns from lunch, she clicks **⚡ Catch Me Up Now**. OneContext queries all events recorded since her last recorded catch-up and passes them to Groq at temperature 0 with strict summarization constraints:
-
-```markdown
-**Decisions**
-- Webhook signatures: HMAC-SHA256 with timestamp anti-replay validation (drift <= 300s).
-
-**Architecture or doc changes**
-- None.
-
-**Commits**
-- Commit 8a2f1b4: Updated payment gateway session timeout configuration.
+```python
+# backend/features/corrections.py (trimmed)
+retain_res = self.service.retain(
+    project_id=project_id,
+    bank_id=bank_id,
+    text=new_text,
+    agent_id=agent_id,
+    source="correction",
+    check_conflict=False,
+    metadata={"supersedes": old_memory_id, "correction_reason": reason},
+)
+self.db.record_correction(
+    project_id=project_id,
+    old_memory_id=old_memory_id,
+    new_memory_id=retain_res["memory_id"],
+    reason=reason,
+    old_memory_text=old_memory_text,
+)
 ```
 
-Carol is caught up in five seconds without asking anyone in Slack.
+One subtle behavior: Hindsight splits retained sentences into separate atomic facts. Filtering solely by the original memory ID leaves derived fragments in search results, so our filter compares candidate text against the superseded decision text as well.
 
-### 4. Code Generation Grounded in Verifiable Memory
-Bob switches to the **Collaborative IDE** and prompts the vibe-coding bar:
-> *"Write the FastAPI webhook verification middleware."*
+[SCREENSHOT: a memory card marked Superseded next to the new decision]
 
-Groq synthesizes the code. But before the draft is presented, OneContext runs our built-in Validator Agent against the Hindsight memory bank. The validator inspects the draft, confirms that HMAC-SHA256 and the 300-second drift window are present, and marks the code `validation: valid`.
+### 4. Bounding Context Packs Without Truncating Tasks
 
----
+A context pack formats recalled facts into a prompt-ready markdown block. An early version sliced the compiled string at `max_chars`, which inadvertently cut off the `[END CONTEXT]` marker and the user's task prompt. The updated logic subtracts the header and footer from the budget upfront and trims excess facts from the bottom:
+
+```python
+# backend/api/memory.py (trimmed)
+header = (
+    f"[PROJECT CONTEXT: {project_name}]\n"
+    f"Key decisions and facts relevant to: {payload.task}\n"
+)
+footer = f"[END CONTEXT]\n\n{payload.task}"
+budget = payload.max_chars - len(header) - len(footer)
+
+selected_lines = []
+used_chars = 0
+for line, mem in formatted_facts:
+    if used_chars + len(line) > budget:
+        break  # Truncate facts from bottom, never wrapper or task
+    selected_lines.append(line)
+    used_chars += len(line)
+
+final_pack = header + "".join(selected_lines) + footer
+```
+
+When targeting Cursor, the generator outputs comment headers (`# Cursor Project Rules`). Retrieval logic stays uniform across all targets.
+
+## What It Looks Like in Use
+
+Setting up a shared session takes three steps in the web interface:
+
+* **Joining a room:** One developer creates a room and receives a six-character join code. Teammates enter the code to connect to the same Hindsight bank. The sidebar displays active team presence.
+* **Live activity feed:** When Bob saved the webhook rule, it appeared in Alice’s feed within a few seconds. If a GitHub repo is connected, commits are polled every 45 seconds and displayed alongside manual decisions.
+* **Catch me up summary:** When returning from away, a developer clicks Catch Me Up. The LLM summarizes events since their last session at temperature 0.0, instructed to preserve names, numbers, and file paths exactly as recorded.
+
+[SCREENSHOT: two windows side by side in the same room]
+[SCREENSHOT: the Catch me up summary]
+
+### Before and After: Real Output Comparison
+
+To measure grounding impact, I ran `demo_context_pack.py` with an architecture specification and posed the same query:
+
+> **Question:** *"What is our policy on public API protocols and database pooling?"*
+
+**Without a Context Pack (Ungrounded):**
+
+```
+I’m sorry—I don’t have access to your organization’s internal documentation,
+so I can’t provide the specific policy that your team has defined for public
+API protocols or database-connection pooling.
+
+However, I can share some common best-practice guidelines that many companies
+adopt in these areas:
+- Transport Layer: HTTPS only (TLS 1.2+; prefer TLS 1.3).
+- Authentication: OAuth 2.0 (Authorization Code, Client Credentials, or JWT).
+- Rate Limiting: Per-client quotas with 429 Too Many Requests when exceeded.
+```
+
+**With Context Pack (Grounded in OneContext Project Memory):**
+
+```
+Public-API protocol policy:
+- Only RESTful HTTP interfaces are allowed for any external-facing
+  microservice. Those endpoints must be described with an OpenAPI v3.1 schema.
+- GraphQL and gRPC are not permitted on public internet gateways. They
+  may be used internally, but cannot be exposed publicly.
+
+Database-pooling policy:
+- The connection pool for each pod is limited to a maximum of 20 database
+  connections. This limit is enforced to prevent PostgreSQL connection saturation.
+```
+
+The grounded model cited exact repository standards, identified prohibited gateway protocols, and provided the precise connection limit needed for service configuration.
+
+[SCREENSHOT: the Context Pack page, with the generated pack and its sources]
+
+## What Doesn't Work Yet
+
+1. **LLM-based conflict checks can be wrong.** The conflict detector and validator agent rely on model inference. They can miss nuanced contradictions or misinterpret harmless additions.
+2. **Corrections rely on heuristic text matching.** Because Hindsight decomposes text into multiple facts, an older fact phrased with alternate terminology can slip past the filter.
+3. **Indexing delay.** Hindsight indexes retained memories asynchronously. While SSE notifications arrive within a few seconds, new decisions need a brief indexing window before appearing in recall.
+4. **No granular permissions.** Anyone with the room join code has full read and write access to the memory bank.
+5. **Polling-based GitHub sync.** Commits are pulled by a worker polling every 45 seconds rather than triggered by immediate webhooks.
+6. **Pasted packs rather than direct editor integration.** OneContext outputs markdown blocks to copy and paste; it does not yet integrate directly into IDE extension runtimes.
 
 ## Lessons Learned
 
-Building a collaborative memory layer taught us several counterintuitive lessons about AI in engineering teams:
-
-### 1. Memory Supersession Matters More Than Vector Depth
-Most vector pipelines focus on embedding quality and retrieval depth ($k=20, 50$). In production engineering, the hardest problem is **invalidation**. A model given three highly relevant facts where one is an outdated draft will hallucinate conflicting code half the time. Building explicit supersession tracking into your memory schema is non-negotiable.
-
-### 2. Context Packs Beat Direct IDE Plugins for Usability
-Early on, we considered building heavy IDE extensions. But developers are protective of their editor setups and frequently switch between Cursor, terminal agents, and web interfaces. Providing a compact, clean **Context Pack** that compiles directly to clipboard rules gave us 100% assistant compatibility on day one without maintaining separate extensions.
-
-### 3. Write-Time Conflict Detection Prevents Tech Debt Early
-Catching a conflicting decision at the moment of retention is dramatically cheaper than discovering it during code review. Querying Hindsight for the top three nearest neighbors at retain time and running a zero-temperature LLM check takes under 400ms, but saves hours of refactoring downstream.
-
-### 4. Background Sync Keeps Documentation Alive
-Developers rarely update wiki pages manually. By running a background worker that polls GitHub repository commits every 45 seconds and retains commit messages with author metadata into Hindsight, our project memory stays current even when developers forget to log ADRs explicitly.
-
----
+* **Invalidation matters more than retrieval depth.** Finding semantically related documents is relatively easy; pruning obsolete or superseded facts is where agent memory systems succeed or fail.
+* **Know your memory engine's parsing model.** Hindsight decomposes raw sentences into atomic facts. That enhances recall precision, but requires supersession logic to account for decomposed fragments.
+* **A portable text format beats editor plugins for adoption.** Generating bounded markdown blocks allows any assistant (Cursor, Claude, ChatGPT) to consume memory without maintaining multiple extension codebases.
+* **Warn, don't block.** Hard write blocks frustrate developers during rapid iteration. Showing side-by-side contradictions lets humans make informed architectural choices.
+* **Keep client initialization thread-isolated.** Wrapping client creation in thread-local storage avoided concurrency crashes across worker threads and kept API route logic clean.
 
 ## Conclusion
 
-AI assistants are only as good as the context they receive. Leaving every developer to manually maintain their own system prompts guarantees that team members will build diverging architectures.
+An AI assistant is only as effective as the context provided to it. By establishing a shared memory bank in [Hindsight](https://github.com/vectorize-io/hindsight), OneContext guarantees that when one developer makes an architectural decision, every teammate's assistant can work from the same reality. To explore how continuous state transforms multi-agent workflows, review Vectorize's guide on [agent memory](https://vectorize.io/what-is-agent-memory).
 
-By centralizing long-term project memory in [Vectorize Hindsight](https://github.com/vectorize-io/hindsight), our team gave every engineer—and every AI assistant they run—a single, verifiable source of truth.
-
----
-
-### Resources & Links
-
-- **Vectorize Hindsight Repository**: [github.com/vectorize-io/hindsight](https://github.com/vectorize-io/hindsight)
-- **Hindsight Technical Documentation**: [hindsight.vectorize.io](https://hindsight.vectorize.io/)
-- **Understanding Vectorize Agent Memory**: [vectorize.io/what-is-agent-memory](https://vectorize.io/what-is-agent-memory)
+Thanks to Code.in for supporting open developer collaboration tools.
