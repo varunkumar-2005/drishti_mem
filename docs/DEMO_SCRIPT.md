@@ -1,87 +1,36 @@
-# OneContext Live Demonstration Script (3 Minutes)
+# OneContext Video Demonstration Script (3 Minutes)
 
-> **One project. One memory. Every agent.**
-
-This script provides an exact, step-by-step walkthrough to demonstrate OneContext in under 3 minutes, showcasing how Vectorize Hindsight Cloud grounds multi-agent workflows and prevents architectural drift.
-
----
-
-## Pre-Demo Checklist (30 seconds before recording)
-1. Double-click [`start_app.bat`](file:///C:/Users/Suresh/Desktop/one_mem/start_app.bat) to launch both FastAPI (`:8000`) and Vite (`:5173`).
-2. Open your browser to `http://localhost:5173`.
-3. Ensure the active project is set to **`apexpay-core`** in the top navigation bar.
+> **Headline**: One project. One memory. Every AI assistant.  
+> **Pitch**: Shared project memory in Vectorize Hindsight that any engineer and any AI assistant (ChatGPT, Claude, Cursor) can use to stay in sync.
 
 ---
 
-## Step 1: The Before/After Panel (0:00 – 0:40)
-**Goal:** Show the direct difference between an ungrounded LLM and OneContext's memory-grounded reasoning.
+## Pre-Recording Setup (1 Minute)
 
-1. Navigate to the **Before / After** tab.
-2. Under "Preset Questions", click:
-   > *"What is our policy for transactions above $10,000?"*
-3. Click **"Compare Responses"**.
-4. **Talking Point**:
-   > *"Notice the left column: without memory, the model provides generic fintech advice with zero source citations. On the right, OneContext queries our Hindsight memory bank, immediately citing our specific compliance policy: transactions over $10,000 require dual-officer sign-off from the compliance officer and finance director. It shows the author badge (`security-lead`), the source category, and the authentic Hindsight semantic vector score."*
-
----
-
-## Step 2: Cross-Agent Memory Collaboration (0:40 – 1:20)
-**Goal:** Prove that agents share a single brain without manual context passing.
-
-1. Navigate to the **Agents** tab.
-2. In the **Lead Architect (Planner)** card, click **Run Agent**.
-   - Input task: *"Review our transactional database standard."*
-   - Click **Execute Task**. The Planner reviews and confirms PostgreSQL 16 with UUIDv4 primary keys.
-3. Scroll to the **Core Developer (Builder)** card and click **Run Agent**.
-   - Input task: *"Generate implementation steps for the new ledger service."*
-   - Click **Execute Task**.
-4. **Talking Point**:
-   > *"Notice that Builder was never given Planner's prompt. It autonomously recalled Planner's decision from Hindsight and generated an async SQLAlchemy implementation with UUIDv4 keys, perfectly aligned with the team's standard."*
+1. Ensure the servers are running:
+   - Backend on `http://127.0.0.1:8000`
+   - Frontend on `http://localhost:5173`
+2. Open **two browser windows side by side**:
+   - **Left half of screen**: Standard browser window (**Window 1 - Alice**) at `http://localhost:5173`.
+   - **Right half of screen**: Incognito / Private window (**Window 2 - Bob**) at `http://localhost:5173`.
 
 ---
 
-## Step 3: Validator Catches a Contradictory PR (1:20 – 1:55)
-**Goal:** Demonstrate automated QA preventing bad code from entering production.
+## 3-Minute Video Walkthrough Script
 
-1. Scroll to the **Compliance Auditor (Validator)** card.
-2. In the draft field, paste:
-   > *"PR #142: Implemented accounts persistence layer using MongoDB document store."*
-3. Set the topic to *"database engine"* and click **Validate Proposed Draft**.
-4. The system flags the draft with `valid: false` and displays:
-   > *"Contradiction: Project policy strictly standardizes transactional persistence on PostgreSQL 16. MongoDB is prohibited."*
-5. **Talking Point**:
-   > *"Agent 3 caught the violation immediately by querying Hindsight. No human had to review the PR to enforce institutional memory."*
-
----
-
-## Step 4: Conflict Detection on Retain (1:55 – 2:30)
-**Goal:** Show real-time collision prevention when contradictory policies are submitted.
-
-1. Navigate to **Memory Explorer**.
-2. Click **"+ Retain New Memory"**.
-3. In the text area, enter:
-   > *"PROPOSAL: We are migrating all our public endpoints from REST to GraphQL."*
-4. Click **Retain Memory**.
-5. An **amber Warning Card** immediately appears above the grid:
-   - **Established Decision**: REST with OpenAPI 3.1 conventions.
-   - **New Proposed Memory**: REST to GraphQL proposal.
-   - **Explanation**: Explicit contradiction detected between REST standard and GraphQL proposal.
-6. **Talking Point**:
-   > *"OneContext doesn't just store memories; it checks incoming decisions against existing policies at retain time using an LLM at temperature 0, alerting the team before conflicting rules spread."*
+| Timestamp | Screen / Action | Spoken Script (What to say) |
+|---|---|---|
+| **0:00 – 0:30** | **Window 1: Landing Page**<br>Point to the headline and the two cards: *Create a Room* & *Join with a Code*. | *"Hello! This is **OneContext**: One project. One memory. Every AI assistant.<br><br>Today, software engineers use different AI tools—Cursor, ChatGPT, Claude—in silos. When one engineer makes an architectural decision or changes an API policy, their teammates' AI assistants have no idea. The result is conflicting code, broken contracts, and costly architectural drift.<br><br>OneContext solves this by maintaining **one unified memory bank** in Vectorize Hindsight for the entire project, so every teammate and every AI assistant always builds with the exact same verified context."* |
+| **0:30 – 1:00** | **Window 1 (Alice)**:<br>In *Create a Room*, type Room Name `Payments Core`, select project `ApexPay Payments Platform`, and click **Create Room & Get Code**.<br><br>**Window 2 (Bob)**:<br>In the Incognito window, enter the 6-character join code from Window 1, enter name `Bob`, and click **Join Team Room**. | *"To get started, Alice creates a team room and gets a 6-character code. On the right, Bob joins using just that code.<br><br>Notice on Alice's screen: Bob immediately shows up under Teammates with a **green online presence dot**. Both engineers are now connected to the same live Hindsight memory bank via real-time Server-Sent Events."* |
+| **1:00 – 1:35** | **Window 2 (Bob)**:<br>In the right panel under *Add to Memory*, select *Architecture Decision* and type:<br>`"All outbound payment webhooks must use HMAC-SHA256 signatures with timestamp anti-replay validation."`<br>Click **Capture Decision**.<br><br>**Window 1 (Alice)**:<br>Point to the Center Context Feed as the new decision appears within seconds with a `NEW` badge and purple `DECISION` tag. | *"Now Bob records an architectural decision. Within seconds, it is indexed in Hindsight and automatically streams over SSE into Alice's Live Context Feed with a purple badge and Bob's name.<br><br>There was no manual Slack ping or stale wiki doc—the memory is live, attributed, and shared with the whole room."* |
+| **1:35 – 2:05** | **Window 1 (Alice)**:<br>In the right panel, click the **"Catch Me Up"** tab.<br>Click **⚡ Catch Me Up Now**.<br>Show the summary generated by Groq. | *"When a teammate joins mid-sprint or returns from a break, they click **Catch Me Up**.<br><br>Groq at temperature 0 analyzes every event since they last checked, producing a strictly grounded summary grouped into Decisions, Architecture changes, and Commits—with exact names, numbers, and zero invented facts."* |
+| **2:05 – 2:35** | **Window 1 (Alice)**:<br>Click the **"Context Pack"** tab.<br>Enter task: `"Implement payment webhook receiver"`.<br>Target dropdown: Select `Cursor` or `ChatGPT`.<br>Click **Generate Context Pack**.<br>Show the block output and click **Copy**. | *"Here is the core capability: **Context Packs**.<br><br>Instead of fragile API plugins, OneContext recalls relevant memories from Hindsight, filters out superseded facts, trims to the exact token limit, and formats a clean block formatted specifically for Cursor, ChatGPT, or Claude.<br><br>The engineer simply copies and pastes this into their assistant—now their model builds with the team's exact constraints verbatim."* |
+| **2:35 – 2:55** | **Window 1 or 2**:<br>Click **💻 Open Collaborative IDE** in the header.<br>Show the code workspace:<br>- Active teammates: `🟢 2 Online: Alice, Bob`<br>- File tabs (`auth/login_service.py`)<br>- Bottom prompt: Click **Vibe Code with Project Memory**.<br>Show the generated code and the **Validator Agent** badge: `Validation valid: True`. | *"For live coding, click **Open Collaborative IDE**.<br><br>Teammates see live presence, inspect shared files, and run Groq-powered Vibe Coding that automatically cross-checks proposed code changes against the project's institutional memory bank."* |
+| **2:55 – 3:05** | **Conclusion**:<br>Show the unified room and logo. | *"OneContext: One project. One memory. Every AI assistant. Built with Vectorize Hindsight and Groq. Thank you!"* |
 
 ---
 
-## Step 5: Memory Correction & Supersession (2:30 – 3:00)
-**Goal:** Show how policies evolve cleanly without retaining zombie facts.
+## Known Limitations to Mention (Transparency)
 
-1. On the conflicting card in the warning banner, click:
-   > **"✏️ Correct / Supersede Established Memory"**
-2. In the modal, enter:
-   - **Updated Policy**: *"DECISION: Public API remains on REST with OpenAPI 3.1. GraphQL is strictly rejected due to CDN edge caching limitations."*
-   - **Reason**: *"Reverted proposal after edge caching audit."*
-3. Click **"Save & Supersede Memory"**.
-4. Return to the **Chat** or **Before/After** panel and ask:
-   > *"Are we using REST or GraphQL?"*
-5. The answer confirms REST and explicitly notes that GraphQL was evaluated and rejected. The old proposal is marked `⛔ Superseded` and excluded from active context.
-6. **Closing Line**:
-   > *"OneContext: One project. One memory. Every agent. Production-ready long-term memory for engineering teams."*
+- **Vector Indexing Delay**: Newly retained memories take a few seconds to finish indexing in Hindsight before they appear in generated Context Packs.
+- **Single Host Backend**: The SQLite team store lives on the host instance; remote teammates connect via the host URL (e.g. Wi-Fi IP or Cloudflare tunnel).
