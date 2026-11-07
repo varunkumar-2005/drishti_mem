@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from backend.core.broadcaster import broadcaster
 
 
 class CorrectionsManager:
@@ -72,6 +73,17 @@ class CorrectionsManager:
             result_count=1,
             timestamp=now_iso,
         )
+
+        # 4. Record event for live room
+        corr_event = self.db.record_event(
+            project_id=project_id,
+            type="correction",
+            title=f"Correction by {agent_id}",
+            body=f"New: {new_text}\nSuperseded: {old_memory_text}\nReason: {reason}",
+            author=agent_id,
+        )
+        if corr_event:
+            broadcaster.publish_nowait(project_id, corr_event)
 
         return {
             "memory_id": new_memory_id,

@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from backend.core.hindsight_client import HindsightWrapper
 from backend.core.llm_client import LLMClient
+from backend.core.broadcaster import broadcaster
 from backend.features.attribution import format_source_attribution
 from backend.features.conflict_detection import ConflictDetector
 from backend.features.corrections import CorrectionsManager
@@ -93,6 +94,32 @@ class MemoryService:
             result_count=1,
             timestamp=now_iso,
         )
+
+        # Record events for live room feed
+        if conflict_info:
+            conflicting_mem = conflict_info.get("conflicting_memory") or {}
+            c_text = conflicting_mem.get("text", "")
+            c_event = self.db.record_event(
+                project_id=project_id,
+                type="conflict",
+                title="Memory Conflict Warning",
+                body=f"Statement '{text}' conflicts with prior decision: '{c_text}'",
+                author=agent_id,
+            )
+            if c_event:
+                broadcaster.publish_nowait(project_id, c_event)
+
+        event_type = "decision" if source in ("decision", "manual_capture", "note", "user", "agent") else "document"
+        e_title = text[:80] + ("..." if len(text) > 80 else "")
+        d_event = self.db.record_event(
+            project_id=project_id,
+            type=event_type,
+            title=e_title,
+            body=text,
+            author=agent_id,
+        )
+        if d_event:
+            broadcaster.publish_nowait(project_id, d_event)
 
         res = {
             "memory_id": memory_id,

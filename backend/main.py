@@ -17,6 +17,8 @@ from backend.api.audit import router as audit_router
 from backend.api.memory import router as memory_router
 from backend.api.projects import router as projects_router
 from backend.api.teams import router as teams_router
+from backend.api.rooms import router as rooms_router
+from backend.services.github_sync import run_github_polling_worker
 from backend.config import get_settings
 from backend.core.hindsight_client import HindsightWrapper
 from backend.core.llm_client import LLMClient
@@ -50,10 +52,15 @@ async def lifespan(app: FastAPI):
     )
 
     logger.info("OneContext backend initialized.")
+    # 4. Start GitHub polling daemon
+    import asyncio
+    github_task = asyncio.create_task(run_github_polling_worker(app.state))
+
     yield
 
-    # 4. Graceful cleanup on shutdown
+    # 5. Graceful cleanup on shutdown
     logger.info("Shutting down OneContext backend...")
+    github_task.cancel()
     hindsight.close()
 
 
@@ -79,6 +86,7 @@ app.include_router(memory_router)
 app.include_router(agents_router)
 app.include_router(audit_router)
 app.include_router(teams_router)
+app.include_router(rooms_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])

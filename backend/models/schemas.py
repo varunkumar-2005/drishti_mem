@@ -292,4 +292,57 @@ class CaptureResponse(BaseModel):
     has_conflict: bool = False
 
 
+# --- Live Room, Events, Presence, Catch-Up, and GitHub Models ---
+
+class RoomEvent(BaseModel):
+    id: str
+    project_id: str
+    type: str = Field(..., description="commit | document | decision | correction | conflict | member_joined")
+    title: str
+    body: Optional[str] = ""
+    author: str
+    source_ref: Optional[str] = None
+    created_at: str
+
+
+class HeartbeatRequest(BaseModel):
+    display_name: str = Field(..., description="Display name of teammate sending heartbeat")
+
+
+class HeartbeatResponse(BaseModel):
+    team_id: str
+    display_name: str
+    last_seen: str
+
+
+class RoomMemberItem(BaseModel):
+    team_id: str
+    display_name: str
+    joined_at: str
+    last_seen: Optional[str] = None
+    online: bool = False
+
+
+class CatchUpRequest(BaseModel):
+    display_name: str = Field(..., description="Display name of teammate requesting catch-up")
+
+
+class CatchUpResponse(BaseModel):
+    summary: str
+    events: List[RoomEvent] = []
+    events_count: int = 0
+
+
+class GitHubConfigRequest(BaseModel):
+    repo: str = Field(..., description="GitHub repository in owner/repo format")
+
+
+class GitHubConfigResponse(BaseModel):
+    project_id: str
+    repo: str
+    last_sync: Optional[str] = None
+    last_status: Optional[str] = None
+
+
+
 

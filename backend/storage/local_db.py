@@ -134,8 +134,42 @@ def init_db(db_path: Optional[str | Path] = None) -> None:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                author TEXT NOT NULL,
+                source_ref TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_github (
+                project_id TEXT PRIMARY KEY,
+                repo TEXT NOT NULL,
+                last_sync TEXT,
+                last_status TEXT,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            )
+            """
+        )
         try:
             cursor.execute("ALTER TABLE corrections ADD COLUMN old_memory_text TEXT")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE team_members ADD COLUMN last_seen TEXT")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE team_members ADD COLUMN last_seen_catchup TEXT")
         except Exception:
             pass
         conn.commit()
@@ -605,5 +639,248 @@ def list_ingested_chunks(
             "SELECT * FROM ingested_chunks WHERE project_id = ? ORDER BY created_at ASC",
             (project_id,),
         )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+# --- Events Feed & Live Context ---
+
+def record_event(
+    project_id: str,
+    type: str,
+    title: str,
+    body: Optional[str] = None,
+    author: str = "system",
+    source_ref: Optional[str] = None,
+    created_at: Optional[str] = None,
+    db_path: Optional[str | Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Record an event for a project's live room feed.
+    Deduplicates by (project_id, source_ref) when source_ref is non-empty.
+    Returns the event dict if created, or None if skipped as duplicate.
+    """
+    if not created_at:
+        created_at = datetime.now(timezone.utc).isoformat()
+    event_id = str(uuid.uuid4())[:12]
+
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        if source_ref:
+            cursor.execute(
+                "SELECT id FROM events WHERE project_id = ? AND source_ref = ?",
+                (project_id, source_ref),
+            )
+            if cursor.fetchone():
+                return None  # duplicate
+
+        cursor.execute(
+            """
+            INSERT INTO events (id, project_id, type, title, body, author, source_ref, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (event_id, project_id, type, title, body or "", author, source_ref, created_at),
+        )
+        conn.commit()
+
+    return {
+        "id": event_id,
+        "project_id": project_id,
+        "type": type,
+        "title": title,
+        "body": body or "",
+        "author": author,
+        "source_ref": source_ref,
+        "created_at": created_at,
+    }
+
+
+def get_events(
+    project_id: str,
+    since: Optional[str] = None,
+    limit: int = 50,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """Get live room events newest first, optionally filtered by since timestamp."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        if since:
+            cursor.execute(
+                """
+                SELECT * FROM events
+                WHERE project_id = ? AND created_at > ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (project_id, since, limit),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT * FROM events
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (project_id, limit),
+            )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+# --- Presence & Heartbeats ---
+
+def update_member_heartbeat(
+    team_id: str,
+    display_name: str,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Update member's last_seen heartbeat. If not in team_members, inserts member."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM team_members WHERE team_id = ? AND display_name = ?",
+            (team_id, display_name),
+        )
+        row = cursor.fetchone()
+        if row:
+            cursor.execute(
+                "UPDATE team_members SET last_seen = ? WHERE team_id = ? AND display_name = ?",
+                (now_iso, team_id, display_name),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO team_members (team_id, display_name, joined_at, last_seen)
+                VALUES (?, ?, ?, ?)
+                """,
+                (team_id, display_name, now_iso, now_iso),
+            )
+        conn.commit()
+    return {"team_id": team_id, "display_name": display_name, "last_seen": now_iso}
+
+
+def update_member_catchup(
+    team_id: str,
+    display_name: str,
+    catchup_time: Optional[str] = None,
+    db_path: Optional[str | Path] = None,
+) -> None:
+    """Update member's last_seen_catchup timestamp."""
+    if not catchup_time:
+        catchup_time = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE team_members SET last_seen_catchup = ? WHERE team_id = ? AND display_name = ?",
+            (catchup_time, team_id, display_name),
+        )
+        conn.commit()
+
+
+def get_team_member(
+    team_id: str,
+    display_name: str,
+    db_path: Optional[str | Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Get a single team member with presence timestamps."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM team_members WHERE team_id = ? AND display_name = ?",
+            (team_id, display_name),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def list_room_members(
+    team_id: str,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """List members of a team room with calculated online status (seen within 60s)."""
+    now = datetime.now(timezone.utc)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM team_members WHERE team_id = ? ORDER BY joined_at ASC", (team_id,))
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            m = dict(row)
+            last_seen_str = m.get("last_seen")
+            online = False
+            if last_seen_str:
+                try:
+                    dt = datetime.fromisoformat(last_seen_str.replace("Z", "+00:00"))
+                    online = (now - dt).total_seconds() <= 60
+                except Exception:
+                    online = False
+            m["online"] = online
+            result.append(m)
+        return result
+
+
+# --- GitHub Sync Storage ---
+
+def save_project_github(
+    project_id: str,
+    repo: str,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Configure GitHub repo for project."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO project_github (project_id, repo, last_status)
+            VALUES (?, ?, 'configured')
+            ON CONFLICT(project_id) DO UPDATE SET repo = excluded.repo, last_status = 'configured'
+            """,
+            (project_id, repo),
+        )
+        conn.commit()
+    return {"project_id": project_id, "repo": repo, "last_status": "configured"}
+
+
+def get_project_github(
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Get GitHub configuration and sync status for project."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM project_github WHERE project_id = ?", (project_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def update_project_github_sync(
+    project_id: str,
+    last_sync: str,
+    last_status: str,
+    db_path: Optional[str | Path] = None,
+) -> None:
+    """Update sync timestamp and status for project."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE project_github SET last_sync = ?, last_status = ? WHERE project_id = ?",
+            (last_sync, last_status, project_id),
+        )
+        conn.commit()
+
+
+def list_all_github_projects(
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """List all projects that have GitHub repository sync configured."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM project_github")
         rows = cursor.fetchall()
         return [dict(row) for row in rows]

@@ -30,6 +30,7 @@ from backend.models.schemas import (
     RetainRequest,
     RetainResponse,
 )
+from backend.core.broadcaster import broadcaster
 from backend.storage import local_db
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["Memory"])
@@ -274,6 +275,17 @@ def ingest_text(
         query_or_text=f"Ingested '{payload.source_name}' ({retained_count} chunks retained, {skipped_count} skipped)",
         result_count=len(chunks),
     )
+
+    ingest_event = local_db.record_event(
+        project_id=project_id,
+        type="document",
+        title=f"Document ingested: {payload.source_name}",
+        body=f"{retained_count} chunks retained ({skipped_count} skipped) as {payload.source_type}",
+        author="ingest",
+        source_ref=payload.source_name,
+    )
+    if ingest_event:
+        broadcaster.publish_nowait(project_id, ingest_event)
 
     return IngestResponse(
         project_id=project_id,

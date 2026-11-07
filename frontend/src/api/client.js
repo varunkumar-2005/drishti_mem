@@ -6,7 +6,11 @@
 import axios from "axios";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://127.0.0.1:8000";
+
+export const BASE_URL = API_BASE_URL;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -199,6 +203,44 @@ export const captureDecision = async (projectId, { text, source_name = "manual_c
     text,
     source_name,
   });
+  return res.data;
+};
+
+// --- Live Team Room & Events Stream ---
+export const getRoomEvents = async (teamId, since = null) => {
+  const url = since ? `/rooms/${teamId}/events?since=${encodeURIComponent(since)}` : `/rooms/${teamId}/events`;
+  const res = await api.get(url);
+  return res.data;
+};
+
+export const getRoomMembers = async (teamId) => {
+  const res = await api.get(`/rooms/${teamId}/members`);
+  return res.data;
+};
+
+export const sendHeartbeat = async (teamId, displayName) => {
+  const res = await api.post(`/rooms/${teamId}/heartbeat`, { display_name: displayName });
+  return res.data;
+};
+
+export const catchUpRoom = async (teamId, displayName) => {
+  const res = await api.post(`/rooms/${teamId}/catch-up`, { display_name: displayName });
+  return res.data;
+};
+
+// --- GitHub Sync ---
+export const configureGitHub = async (projectId, repo) => {
+  const res = await api.post(`/projects/${projectId}/github`, { repo });
+  return res.data;
+};
+
+export const getGitHubConfig = async (projectId) => {
+  const res = await api.get(`/projects/${projectId}/github`);
+  return res.data;
+};
+
+export const syncGitHub = async (projectId) => {
+  const res = await api.post(`/projects/${projectId}/github/sync`);
   return res.data;
 };
 

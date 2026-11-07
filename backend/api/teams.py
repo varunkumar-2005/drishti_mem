@@ -21,6 +21,7 @@ from backend.models.schemas import (
     TeamCodeActionRequest,
     TeamCodeActionResponse,
 )
+from backend.core.broadcaster import broadcaster
 from backend.storage import local_db
 
 logger = logging.getLogger("onecontext.teams")
@@ -77,6 +78,17 @@ def join_team(payload: TeamJoinRequest) -> TeamJoinResponse:
         action="member_joined",
         query_or_text=f"Member '{payload.display_name.strip()}' joined team '{team['name']}' (code {team['join_code']})",
     )
+
+    # Record event in live room feed
+    join_event = local_db.record_event(
+        project_id=team["project_id"],
+        type="member_joined",
+        title=f"{payload.display_name.strip()} joined the room",
+        body=f"Joined team '{team['name']}' with join code {team['join_code']}",
+        author=payload.display_name.strip(),
+    )
+    if join_event:
+        broadcaster.publish_nowait(team["project_id"], join_event)
 
     return TeamJoinResponse(
         team=TeamResponse(**team),
