@@ -12,6 +12,9 @@ from typing import Any, Dict, List, Optional
 
 from backend.core.hindsight_client import HindsightWrapper
 from backend.core.llm_client import LLMClient
+from backend.features.attribution import format_source_attribution
+from backend.features.conflict_detection import ConflictDetector
+from backend.features.corrections import CorrectionsManager
 from backend.storage import local_db
 
 
@@ -27,6 +30,8 @@ class MemoryService:
         self.hindsight = hindsight
         self.llm = llm
         self.db = db_module
+        self.conflict_detector = ConflictDetector(llm)
+        self.corrections_manager = CorrectionsManager(self, db_module)
 
     def retain(
         self,
@@ -35,20 +40,48 @@ class MemoryService:
         text: str,
         agent_id: str = "user",
         source: str = "note",
+        check_conflict: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Retain a memory, attaching metadata and recording to the audit log."""
+        """Retain a memory, optionally checking for conflicts, attaching metadata and recording to audit log."""
         now_iso = datetime.now(timezone.utc).isoformat()
-        metadata = {
+        full_metadata = {
             "project_id": project_id,
             "agent_id": agent_id,
             "source": source,
             "timestamp": now_iso,
         }
+        if metadata:
+            full_metadata.update(metadata)
+
+        conflict_info = None
+        if check_conflict:
+            # Check if this new memory contradicts existing memories
+            existing = self.recall(
+                project_id=project_id,
+                bank_id=bank_id,
+                query=text,
+                max_results=3,
+                include_superseded=False,
+            )
+            detected = self.conflict_detector.detect_conflict(text, existing)
+            if detected.get("has_conflict"):
+                conflict_info = detected
+                conflicting_mem = detected.get("conflicting_memory") or {}
+                conflicting_text = conflicting_mem.get("text", "")[:80]
+                self.db.log_audit(
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    action="conflict_detected",
+                    query_or_text=f"New: {text[:80]} vs Old: {conflicting_text}",
+                    result_count=1,
+                    timestamp=now_iso,
+                )
 
         memory_id = self.hindsight.retain(
             bank_id=bank_id,
             text=text,
-            metadata=metadata,
+            metadata=full_metadata,
         )
 
         # Record in local SQLite audit trail
@@ -61,13 +94,36 @@ class MemoryService:
             timestamp=now_iso,
         )
 
-        return {
+        res = {
             "memory_id": memory_id,
             "project_id": project_id,
             "agent_id": agent_id,
             "source": source,
             "timestamp": now_iso,
+            "conflict": conflict_info,
         }
+        if metadata and "supersedes" in metadata:
+            res["supersedes"] = metadata["supersedes"]
+        return res
+
+    def correct(
+        self,
+        project_id: str,
+        bank_id: str,
+        old_memory_id: str,
+        new_text: str,
+        agent_id: str = "user",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        """Create a corrective memory that supersedes an older one."""
+        return self.corrections_manager.correct(
+            project_id=project_id,
+            bank_id=bank_id,
+            old_memory_id=old_memory_id,
+            new_text=new_text,
+            agent_id=agent_id,
+            reason=reason,
+        )
 
     def recall(
         self,
@@ -76,13 +132,18 @@ class MemoryService:
         query: str,
         max_results: int = 5,
         agent_id: str = "user",
+        include_superseded: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Retrieve memories and format them with attribution metadata."""
+        """Retrieve memories and format them with attribution metadata, preferring active non-superseded entries."""
         raw_items = self.hindsight.recall(
             bank_id=bank_id,
             query=query,
             max_results=max_results,
         )
+
+        superseded_ids = set()
+        if hasattr(self.db, "get_superseded_memory_ids"):
+            superseded_ids = self.db.get_superseded_memory_ids(project_id)
 
         formatted_items: List[Dict[str, Any]] = []
         seen_texts = set()
@@ -96,18 +157,25 @@ class MemoryService:
             seen_texts.add(norm)
 
             meta = item.get("metadata") or {}
-            formatted_items.append(
-                {
-                    "id": item.get("id") or str(uuid.uuid4())[:8],
-                    "text": raw_text,
-                    "type": item.get("type"),
-                    "source": meta.get("source"),
-                    "agent_id": meta.get("agent_id"),
-                    "timestamp": meta.get("timestamp"),
-                    "score": item.get("score"),
-                    "metadata": meta,
-                }
-            )
+            mem_id = item.get("id") or meta.get("id") or str(uuid.uuid4())[:8]
+            is_superseded = mem_id in superseded_ids or bool(meta.get("is_superseded"))
+
+            if not include_superseded and is_superseded:
+                continue
+
+            item_dict = {
+                "id": mem_id,
+                "text": raw_text,
+                "type": item.get("type"),
+                "source": meta.get("source"),
+                "agent_id": meta.get("agent_id"),
+                "timestamp": meta.get("timestamp"),
+                "score": item.get("score"),
+                "metadata": meta,
+                "supersedes": meta.get("supersedes"),
+                "is_superseded": is_superseded,
+            }
+            formatted_items.append(format_source_attribution(item_dict))
 
         # Log search in audit log
         self.db.log_audit(
@@ -134,6 +202,7 @@ class MemoryService:
             query=question,
             max_results=5,
             agent_id=agent_id,
+            include_superseded=False,
         )
 
         # Build prompt with context

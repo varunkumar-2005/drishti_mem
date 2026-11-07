@@ -1,20 +1,28 @@
 import React, { useState } from "react";
 
-export default function MemoryCard({ item }) {
+export default function MemoryCard({ item, onCorrect }) {
   const [expanded, setExpanded] = useState(false);
   const text = item.text || "";
   const isLong = text.length > 140;
   const author = item.agent_id || item.metadata?.agent_id || "general";
   const source = item.source || item.metadata?.source || "note";
   const type = item.type || "memory";
+  const isSuperseded = item.is_superseded;
+  const supersedes = item.supersedes || item.metadata?.supersedes;
 
   return (
-    <div style={styles.card}>
+    <div style={{ ...styles.card, opacity: isSuperseded ? 0.7 : 1, border: isSuperseded ? "1px dashed #ef4444" : "1px solid #2e2e38" }}>
       <div style={styles.header}>
         <div style={styles.badges}>
           <span style={styles.authorBadge}>🤖 {author}</span>
           <span style={styles.sourceBadge}>{source}</span>
           {type && <span style={styles.typeBadge}>{type}</span>}
+          {isSuperseded && (
+            <span style={styles.supersededBadge}>⛔ Superseded</span>
+          )}
+          {supersedes && (
+            <span style={styles.correctiveBadge}>🔄 Corrective Update</span>
+          )}
         </div>
         {item.score !== undefined && item.score !== null && (
           <span style={styles.scoreBadge}>
@@ -27,14 +35,26 @@ export default function MemoryCard({ item }) {
         {expanded || !isLong ? text : `${text.slice(0, 140)}...`}
       </div>
 
-      {isLong && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          style={styles.expandBtn}
-        >
-          {expanded ? "Show less" : "Read full memory"}
-        </button>
-      )}
+      <div style={styles.footerRow}>
+        {isLong && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            style={styles.expandBtn}
+          >
+            {expanded ? "Show less" : "Read full memory"}
+          </button>
+        )}
+
+        {onCorrect && !isSuperseded && (
+          <button
+            onClick={() => onCorrect(item)}
+            style={styles.correctBtn}
+            title="Supersede and correct this decision"
+          >
+            ✏️ Correct this memory
+          </button>
+        )}
+      </div>
 
       {item.timestamp && (
         <div style={styles.timestamp}>
@@ -93,6 +113,23 @@ const styles = {
     padding: "3px 8px",
     borderRadius: "6px",
   },
+  supersededBadge: {
+    backgroundColor: "#ef444420",
+    color: "#f87171",
+    fontSize: "11px",
+    padding: "3px 8px",
+    borderRadius: "6px",
+    border: "1px solid #ef444440",
+    fontWeight: "600",
+  },
+  correctiveBadge: {
+    backgroundColor: "#3b82f620",
+    color: "#60a5fa",
+    fontSize: "11px",
+    padding: "3px 8px",
+    borderRadius: "6px",
+    border: "1px solid #3b82f640",
+  },
   scoreBadge: {
     fontSize: "11px",
     color: "#fbbf24",
@@ -106,6 +143,12 @@ const styles = {
     lineHeight: "1.55",
     whiteSpace: "pre-wrap",
   },
+  footerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: "4px",
+  },
   expandBtn: {
     alignSelf: "flex-start",
     background: "none",
@@ -115,6 +158,16 @@ const styles = {
     cursor: "pointer",
     padding: "0",
     textDecoration: "underline",
+  },
+  correctBtn: {
+    background: "#27272a",
+    border: "1px solid #3f3f46",
+    color: "#a1a1aa",
+    fontSize: "11px",
+    padding: "3px 8px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    transition: "all 0.15s ease",
   },
   timestamp: {
     fontSize: "11px",

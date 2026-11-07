@@ -68,6 +68,18 @@ def init_db(db_path: Optional[str | Path] = None) -> None:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS corrections (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                old_memory_id TEXT NOT NULL,
+                new_memory_id TEXT NOT NULL,
+                reason TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -227,6 +239,68 @@ def get_audit(
             LIMIT ?
             """,
             (project_id, limit),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+def record_correction(
+    project_id: str,
+    old_memory_id: str,
+    new_memory_id: str,
+    reason: str = "",
+    created_at: Optional[str] = None,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Record a memory supersession relationship in SQLite."""
+    corr_id = str(uuid.uuid4())[:8]
+    if not created_at:
+        created_at = datetime.now(timezone.utc).isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO corrections (id, project_id, old_memory_id, new_memory_id, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (corr_id, project_id, old_memory_id, new_memory_id, reason, created_at),
+        )
+        conn.commit()
+    return {
+        "id": corr_id,
+        "project_id": project_id,
+        "old_memory_id": old_memory_id,
+        "new_memory_id": new_memory_id,
+        "reason": reason,
+        "created_at": created_at,
+    }
+
+
+def get_superseded_memory_ids(
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> set[str]:
+    """Return all memory IDs in a project that have been superseded by a newer memory."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT old_memory_id FROM corrections WHERE project_id = ?",
+            (project_id,),
+        )
+        rows = cursor.fetchall()
+        return {row["old_memory_id"] for row in rows}
+
+
+def get_corrections(
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    """Return all correction records for a project."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM corrections WHERE project_id = ? ORDER BY created_at DESC",
+            (project_id,),
         )
         rows = cursor.fetchall()
         return [dict(row) for row in rows]

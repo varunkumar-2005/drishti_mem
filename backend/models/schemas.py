@@ -24,10 +24,18 @@ class ProjectResponse(BaseModel):
 
 
 # --- Memory Models ---
+class ConflictDetail(BaseModel):
+    has_conflict: bool
+    conflicting_memory: Optional[Dict[str, Any]] = None
+    explanation: Optional[str] = None
+    new_text: Optional[str] = None
+
+
 class RetainRequest(BaseModel):
     text: str = Field(..., description="Fact, decision, or architectural note to retain")
     source: str = Field(default="note", description="Source type: note, decision, chat, doc, incident")
     agent_id: str = Field(default="user", description="Author agent ID or user ID")
+    check_conflict: bool = Field(default=True, description="Whether to check for policy conflicts upon retain")
 
 
 class RetainResponse(BaseModel):
@@ -36,11 +44,40 @@ class RetainResponse(BaseModel):
     agent_id: str
     source: str
     timestamp: str
+    conflict: Optional[ConflictDetail] = None
+    supersedes: Optional[str] = None
+
+
+class CorrectRequest(BaseModel):
+    old_memory_id: str = Field(..., description="ID of memory being superseded")
+    new_text: str = Field(..., description="Updated and corrected memory text")
+    agent_id: str = Field(default="user", description="Author agent ID")
+    reason: str = Field(default="", description="Reason for the correction")
+
+
+class CorrectResponse(BaseModel):
+    memory_id: str
+    old_memory_id: str
+    supersedes: str
+    project_id: str
+    reason: str
+    timestamp: str
+    status: str = "corrected"
+
+
+class ConflictCheckRequest(BaseModel):
+    text: str = Field(..., description="Text to cross-check against recorded memories for contradiction")
+
+
+class ConflictCheckResponse(BaseModel):
+    has_conflict: bool
+    conflict: Optional[ConflictDetail] = None
 
 
 class RecallRequest(BaseModel):
     query: str = Field(..., description="Semantic search query")
     max_results: int = Field(default=5, ge=1, le=20)
+    include_superseded: bool = Field(default=True, description="Whether to include superseded historical memories")
 
 
 class MemoryItem(BaseModel):
@@ -52,6 +89,8 @@ class MemoryItem(BaseModel):
     timestamp: Optional[str] = None
     score: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
+    supersedes: Optional[str] = None
+    is_superseded: Optional[bool] = False
 
 
 class RecallResponse(BaseModel):

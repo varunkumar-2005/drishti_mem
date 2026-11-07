@@ -83,6 +83,27 @@ export const askWithoutMemory = async (projectId, { question, agent_id = "user" 
   return res.data;
 };
 
+// --- Corrections & Conflict Detection (Phase 5) ---
+export const correctMemory = async (projectId, { old_memory_id, new_text, agent_id = "user", reason = "" }) => {
+  const res = await api.post(`/projects/${projectId}/correct`, {
+    old_memory_id,
+    new_text,
+    agent_id,
+    reason,
+  });
+  return res.data;
+};
+
+export const checkConflict = async (projectId, { text }) => {
+  const res = await api.post(`/projects/${projectId}/check-conflict`, { text });
+  return res.data;
+};
+
+export const getConflicts = async (projectId) => {
+  const res = await api.get(`/projects/${projectId}/conflicts`);
+  return res.data;
+};
+
 // --- Validator ---
 export const validateDraft = async (projectId, { draft, check_topic }) => {
   const res = await api.post(`/projects/${projectId}/validate`, {
