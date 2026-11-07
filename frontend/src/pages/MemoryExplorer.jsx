@@ -107,6 +107,7 @@ export default function MemoryExplorer({ activeProject }) {
     try {
       await correctMemory(activeProject.id, {
         old_memory_id: targetMemory.id,
+        old_memory_text: targetMemory.text,
         new_text: correctionText,
         agent_id: "lead-architect",
         reason: correctionReason || "Policy update / supersession",

@@ -53,6 +53,7 @@ class CorrectRequest(BaseModel):
     new_text: str = Field(..., description="Updated and corrected memory text")
     agent_id: str = Field(default="user", description="Author agent ID")
     reason: str = Field(default="", description="Reason for the correction")
+    old_memory_text: Optional[str] = Field(default="", description="Original memory text to exclude derived facts")
 
 
 class CorrectResponse(BaseModel):

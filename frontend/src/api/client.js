@@ -84,12 +84,13 @@ export const askWithoutMemory = async (projectId, { question, agent_id = "user" 
 };
 
 // --- Corrections & Conflict Detection (Phase 5) ---
-export const correctMemory = async (projectId, { old_memory_id, new_text, agent_id = "user", reason = "" }) => {
+export const correctMemory = async (projectId, { old_memory_id, new_text, agent_id = "user", reason = "", old_memory_text = "" }) => {
   const res = await api.post(`/projects/${projectId}/correct`, {
     old_memory_id,
     new_text,
     agent_id,
     reason,
+    old_memory_text,
   });
   return res.data;
 };

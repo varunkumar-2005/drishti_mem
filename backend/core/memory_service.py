@@ -114,8 +114,9 @@ class MemoryService:
         new_text: str,
         agent_id: str = "user",
         reason: str = "",
+        old_memory_text: str = "",
     ) -> Dict[str, Any]:
-        """Create a corrective memory that supersedes an older one."""
+        """Create a corrective memory that supersedes an older one and its derived facts."""
         return self.corrections_manager.correct(
             project_id=project_id,
             bank_id=bank_id,
@@ -123,6 +124,7 @@ class MemoryService:
             new_text=new_text,
             agent_id=agent_id,
             reason=reason,
+            old_memory_text=old_memory_text,
         )
 
     def recall(
@@ -142,11 +144,24 @@ class MemoryService:
         )
 
         superseded_ids = set()
-        if hasattr(self.db, "get_superseded_memory_ids"):
+        superseded_texts = []
+        if hasattr(self.db, "get_superseded_info"):
+            info = self.db.get_superseded_info(project_id)
+            superseded_ids = info.get("ids", set())
+            superseded_texts = info.get("texts", [])
+        elif hasattr(self.db, "get_superseded_memory_ids"):
             superseded_ids = self.db.get_superseded_memory_ids(project_id)
 
         formatted_items: List[Dict[str, Any]] = []
         seen_texts = set()
+
+        import re
+
+        stopwords = {
+            "the", "a", "an", "is", "are", "and", "or", "to", "for", "in", "on", "of", "with",
+            "all", "our", "we", "project", "standard", "decision", "must", "strictly", "requires",
+            "when", "official", "architectural", "using", "use", "per", "from", "by", "at",
+        }
 
         for item in raw_items:
             raw_text = item.get("text", "").strip()
@@ -158,7 +173,25 @@ class MemoryService:
 
             meta = item.get("metadata") or {}
             mem_id = item.get("id") or meta.get("id") or str(uuid.uuid4())[:8]
+
+            # 1. Exact ID check
             is_superseded = mem_id in superseded_ids or bool(meta.get("is_superseded"))
+
+            # 2. Multi-fact derivation check: exclude all facts extracted from the superseded retain
+            if not is_superseded and not meta.get("supersedes") and superseded_texts:
+                norm_clean = re.sub(r"[^a-zA-Z0-9\s]", " ", norm.lower())
+                norm_tokens = set(norm_clean.split()) - stopwords
+                if norm_tokens:
+                    for old_text in superseded_texts:
+                        old_clean = re.sub(r"[^a-zA-Z0-9\s]", " ", old_text.lower())
+                        old_tokens = set(old_clean.split()) - stopwords
+                        if not old_tokens:
+                            continue
+                        common = norm_tokens & old_tokens
+                        overlap = len(common) / min(len(norm_tokens), len(old_tokens))
+                        if len(common) >= 3 or overlap >= 0.40 or norm_clean in old_clean or old_clean in norm_clean:
+                            is_superseded = True
+                            break
 
             if not include_superseded and is_superseded:
                 continue

@@ -163,3 +163,61 @@ def test_conflicts_and_corrections_recorded_in_audit_log(shared_resources):
 
     actions = [a["action"] for a in audit]
     assert "correct" in actions, "Audit log must track memory correction events"
+
+
+def test_multi_fact_memory_supersession_excludes_all_derived_facts(shared_resources):
+    """
+    Validates that when a multi-clause sentence that Hindsight decomposes
+    into multiple facts is corrected, ALL derived facts/observations are
+    excluded from active recall, not just the single retained ID.
+    """
+    service = shared_resources["service"]
+    hindsight = shared_resources["hindsight"]
+    project_id = shared_resources["project_id"]
+    bank_id = shared_resources["bank_id"]
+
+    # 1. Retain complex sentence that generates multiple facts
+    multi_fact_text = (
+        "DECISION: Standardize public APIs on GraphQL with Apollo Gateway and schema stitching. "
+        "RESTful endpoints and OpenAPI generators are officially retired."
+    )
+    retain_res = service.retain(
+        project_id=project_id,
+        bank_id=bank_id,
+        text=multi_fact_text,
+        agent_id="agent-planner",
+        source="api_design",
+        check_conflict=False,
+    )
+    old_id = retain_res["memory_id"]
+    hindsight.wait_for_recall(bank_id, "GraphQL Apollo Gateway schema", "GraphQL", timeout=15)
+
+    # 2. Correct with new REST decision
+    new_text = "DECISION (REVERT): Public APIs are standardized on REST with OpenAPI 3.1. GraphQL is strictly prohibited."
+    service.correct(
+        project_id=project_id,
+        bank_id=bank_id,
+        old_memory_id=old_id,
+        new_text=new_text,
+        agent_id="agent-planner",
+        reason="GraphQL broke CDN caching and rate limiting",
+        old_memory_text=multi_fact_text,
+    )
+
+    # 3. Recall with include_superseded=False
+    active_results = service.recall(
+        project_id=project_id,
+        bank_id=bank_id,
+        query="GraphQL Apollo Gateway schema stitching REST",
+        max_results=10,
+        include_superseded=False,
+    )
+
+    # Verify that NONE of the recalled active items claim GraphQL/Apollo Gateway as active truth
+    for item in active_results:
+        # The only allowed mention of GraphQL is within the new corrective memory itself
+        if "apollo gateway" in item["text"].lower() or "schema stitching" in item["text"].lower():
+            pytest.fail(f"Derived superseded fact was not excluded: {item['text']}")
+        if "graphql" in item["text"].lower():
+            assert "prohibited" in item["text"].lower() or "revert" in item["text"].lower()
+

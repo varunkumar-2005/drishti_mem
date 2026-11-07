@@ -26,10 +26,12 @@ class CorrectionsManager:
         new_text: str,
         agent_id: str = "user",
         reason: str = "",
+        old_memory_text: str = "",
     ) -> Dict[str, Any]:
         """
         Retain a corrective memory that explicitly supersedes old_memory_id.
-        Records the relationship in SQLite so recall prioritizes the latest truth.
+        Records the relationship and superseded text so recall prioritizes the latest truth
+        and filters out all derived facts/observations from the superseded retain.
         """
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -43,6 +45,7 @@ class CorrectionsManager:
             check_conflict=False,  # deliberate correction
             metadata={
                 "supersedes": old_memory_id,
+                "superseded_text": old_memory_text[:200] if old_memory_text else "",
                 "correction_reason": reason,
                 "corrected_at": now_iso,
             },
@@ -50,12 +53,13 @@ class CorrectionsManager:
 
         new_memory_id = retain_res["memory_id"]
 
-        # 2. Record supersession relationship in SQLite
+        # 2. Record supersession relationship and original text in SQLite
         corr_record = self.db.record_correction(
             project_id=project_id,
             old_memory_id=old_memory_id,
             new_memory_id=new_memory_id,
             reason=reason,
+            old_memory_text=old_memory_text,
             created_at=now_iso,
         )
 

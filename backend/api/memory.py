@@ -76,6 +76,7 @@ def correct_memory(
         new_text=payload.new_text,
         agent_id=payload.agent_id,
         reason=payload.reason,
+        old_memory_text=payload.old_memory_text or "",
     )
     return CorrectResponse(**result)
 

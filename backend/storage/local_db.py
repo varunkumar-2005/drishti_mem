@@ -74,12 +74,17 @@ def init_db(db_path: Optional[str | Path] = None) -> None:
                 id TEXT PRIMARY KEY,
                 project_id TEXT NOT NULL,
                 old_memory_id TEXT NOT NULL,
+                old_memory_text TEXT,
                 new_memory_id TEXT NOT NULL,
                 reason TEXT,
                 created_at TEXT NOT NULL
             )
             """
         )
+        try:
+            cursor.execute("ALTER TABLE corrections ADD COLUMN old_memory_text TEXT")
+        except Exception:
+            pass
         conn.commit()
 
 
@@ -249,6 +254,7 @@ def record_correction(
     old_memory_id: str,
     new_memory_id: str,
     reason: str = "",
+    old_memory_text: str = "",
     created_at: Optional[str] = None,
     db_path: Optional[str | Path] = None,
 ) -> Dict[str, Any]:
@@ -260,16 +266,17 @@ def record_correction(
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO corrections (id, project_id, old_memory_id, new_memory_id, reason, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO corrections (id, project_id, old_memory_id, old_memory_text, new_memory_id, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (corr_id, project_id, old_memory_id, new_memory_id, reason, created_at),
+            (corr_id, project_id, old_memory_id, old_memory_text, new_memory_id, reason, created_at),
         )
         conn.commit()
     return {
         "id": corr_id,
         "project_id": project_id,
         "old_memory_id": old_memory_id,
+        "old_memory_text": old_memory_text,
         "new_memory_id": new_memory_id,
         "reason": reason,
         "created_at": created_at,
@@ -289,6 +296,23 @@ def get_superseded_memory_ids(
         )
         rows = cursor.fetchall()
         return {row["old_memory_id"] for row in rows}
+
+
+def get_superseded_info(
+    project_id: str,
+    db_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Return both superseded IDs and superseded source texts for semantic exclusion."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT old_memory_id, old_memory_text FROM corrections WHERE project_id = ?",
+            (project_id,),
+        )
+        rows = cursor.fetchall()
+        ids = {row["old_memory_id"] for row in rows if row["old_memory_id"]}
+        texts = [row["old_memory_text"].strip() for row in rows if row["old_memory_text"]]
+        return {"ids": ids, "texts": texts}
 
 
 def get_corrections(
