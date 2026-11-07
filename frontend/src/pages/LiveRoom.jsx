@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   createTeam,
   joinTeam,
@@ -76,6 +77,10 @@ export default function LiveRoom({
   const [githubConfig, setGithubConfig] = useState(null);
   const [syncingGithub, setSyncingGithub] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const navigate = useNavigate();
+
+  const onlineMembers = members.filter((m) => m.online);
+  const onlineNames = onlineMembers.map((m) => m.display_name).join(", ");
 
   // --- Right Panel State ---
   const [rightTab, setRightTab] = useState("catchup"); // "catchup" | "pack" | "add"
@@ -742,6 +747,30 @@ export default function LiveRoom({
           </div>
         </div>
 
+        {/* Collaborative IDE Launch Action */}
+        <div style={styles.sidebarSection}>
+          <div style={styles.sectionHeaderRow}>
+            <h3 style={styles.sidebarHeading}>Collaborative IDE</h3>
+            <span style={{ ...styles.countBadge, backgroundColor: "#064e3b", color: "#34d399", fontWeight: "700" }}>
+              🟢 {onlineMembers.length} active
+            </span>
+          </div>
+          <p style={{ fontSize: "0.82rem", color: "#a1a1aa", margin: "0 0 10px 0" }}>
+            Real-time VS Code style workspace with folder tree, vibe coding, and team chat.
+          </p>
+          <button
+            onClick={() => navigate("/team")}
+            style={styles.openIdeBtn}
+          >
+            💻 Open Collaborative IDE →
+          </button>
+          {onlineMembers.length > 0 && (
+            <div style={{ fontSize: "0.75rem", color: "#a1a1aa", marginTop: "8px" }}>
+              Active teammates: <strong style={{ color: "#34d399" }}>{onlineNames}</strong>
+            </div>
+          )}
+        </div>
+
         {/* Member Presence */}
         <div style={styles.sidebarSection}>
           <div style={styles.sectionHeaderRow}>
@@ -829,7 +858,15 @@ export default function LiveRoom({
         {/* Top Header of Feed */}
         <div style={styles.feedHeader}>
           <div style={styles.feedTitleRow}>
-            <h2 style={styles.colTitle}>Live Context Feed</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+              <h2 style={styles.colTitle}>Live Context Feed</h2>
+              <button
+                onClick={() => navigate("/team")}
+                style={styles.headerIdePillBtn}
+              >
+                💻 Open Collaborative IDE {onlineMembers.length > 0 ? `(🟢 ${onlineMembers.length} Online: ${onlineNames})` : "→"}
+              </button>
+            </div>
             <div style={styles.feedStatusIndicator}>
               <span
                 style={{
@@ -1488,6 +1525,32 @@ const styles = {
     fontSize: "0.8rem",
     cursor: "pointer",
     width: "100%",
+  },
+  openIdeBtn: {
+    width: "100%",
+    backgroundColor: "#2563eb",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "6px",
+    padding: "8px 12px",
+    fontSize: "0.86rem",
+    fontWeight: "700",
+    cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(37, 99, 235, 0.4)",
+    transition: "all 0.15s ease",
+  },
+  headerIdePillBtn: {
+    backgroundColor: "#1e1b4b",
+    color: "#a5b4fc",
+    border: "1px solid #4338ca",
+    borderRadius: "20px",
+    padding: "4px 12px",
+    fontSize: "0.8rem",
+    fontWeight: "700",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
   },
   sidebarFooter: {
     marginTop: "auto",

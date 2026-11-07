@@ -95,6 +95,24 @@ export default function App() {
               Team Room
             </Link>
 
+            {/* Collaborative IDE Quick Button */}
+            {currentTeam && (
+              <Link
+                to="/team"
+                style={{
+                  ...styles.navLink,
+                  backgroundColor: location.pathname === "/team" ? "#2563eb" : "#1e1b4b",
+                  color: location.pathname === "/team" ? "#ffffff" : "#a5b4fc",
+                  border: "1px solid #4338ca",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span>💻 Open IDE</span>
+              </Link>
+            )}
+
             {/* "More" Dropdown Menu */}
             <div style={styles.moreMenuWrapper}>
               <button

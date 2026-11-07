@@ -5,6 +5,8 @@ import {
   createTeam,
   joinTeam,
   listTeamMembers,
+  getRoomMembers,
+  sendHeartbeat,
   sendTeamMessage,
   listTeamMessages,
   seedTeamDemo,
@@ -121,13 +123,17 @@ export default function Team({ activeProject, setActiveProject, currentTeam, set
   useEffect(() => {
     if (!currentTeam?.id) return;
 
+    const user = displayName || localStorage.getItem("onecontext_user") || "Developer";
+    sendHeartbeat(currentTeam.id, user).catch(() => {});
+
     fetchMembersAndMessages(currentTeam.id);
     const interval = setInterval(() => {
+      sendHeartbeat(currentTeam.id, user).catch(() => {});
       fetchMembersAndMessages(currentTeam.id, true);
-    }, 1800);
+    }, 2000);
 
     return () => clearInterval(interval);
-  }, [currentTeam]);
+  }, [currentTeam, displayName]);
 
   // Auto scroll chat to bottom
   useEffect(() => {
@@ -152,7 +158,7 @@ export default function Team({ activeProject, setActiveProject, currentTeam, set
   const fetchMembersAndMessages = async (teamId, silent = false) => {
     try {
       const [membersData, msgsData] = await Promise.all([
-        listTeamMembers(teamId),
+        getRoomMembers(teamId),
         listTeamMessages(teamId),
       ]);
       setMembers(membersData);
@@ -456,21 +462,46 @@ export default function Team({ activeProject, setActiveProject, currentTeam, set
           </div>
         </div>
 
-        {/* 4 Active Collaborator Badges */}
+        {/* Active Collaborators Presence Bar */}
         <div style={styles.presenceBar}>
-          <span style={styles.presenceLabel}>ACTIVE TEAM PRESENCE:</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button onClick={() => navigate("/")} style={styles.backBtn}>
+              ← Back to Room Feed
+            </button>
+            <span style={styles.presenceLabel}>
+              ACTIVE TEAMMATES ({members.filter((m) => m.online).length} ONLINE):
+            </span>
+          </div>
+
           <div style={styles.avatarList}>
-            <span style={{ ...styles.avatarBadge, borderColor: "#a855f7" }}>
-              <span style={styles.statusDot} /> 👑 Varun (Lead Architect)
-            </span>
-            <span style={{ ...styles.avatarBadge, borderColor: "#10b981" }}>
-              <span style={styles.statusDot} /> 🛡️ Alice (Auth Specialist)
-            </span>
-            <span style={{ ...styles.avatarBadge, borderColor: "#3b82f6" }}>
-              <span style={styles.statusDot} /> ⚙️ Bob (Backend Eng)
-            </span>
-            <span style={{ ...styles.avatarBadge, borderColor: "#f59e0b" }}>
-              <span style={styles.statusDot} /> 🤖 Validator Agent (Guardrail)
+            {members.length === 0 ? (
+              <span style={{ fontSize: "0.8rem", color: "#71717a" }}>Loading members...</span>
+            ) : (
+              members.map((m, idx) => {
+                const isOnline = m.online;
+                return (
+                  <span
+                    key={idx}
+                    style={{
+                      ...styles.avatarBadge,
+                      borderColor: isOnline ? "#10b981" : "#3f3f46",
+                      backgroundColor: isOnline ? "#064e3b33" : "#18181b",
+                    }}
+                  >
+                    <span
+                      style={{
+                        ...styles.statusDot,
+                        backgroundColor: isOnline ? "#10b981" : "#71717a",
+                        boxShadow: isOnline ? "0 0 6px #10b981" : "none",
+                      }}
+                    />
+                    👤 {m.display_name} {isOnline ? "(active)" : "(away)"}
+                  </span>
+                );
+              })
+            )}
+            <span style={{ ...styles.avatarBadge, borderColor: "#6366f1", backgroundColor: "#1e1b4b33" }}>
+              <span style={{ ...styles.statusDot, backgroundColor: "#6366f1" }} /> 🤖 Groq Vibe Agent
             </span>
           </div>
         </div>
@@ -885,6 +916,17 @@ const styles = {
     padding: "2px 8px",
     fontSize: "0.75rem",
     cursor: "pointer",
+  },
+  backBtn: {
+    backgroundColor: "#18181b",
+    border: "1px solid #3f3f46",
+    color: "#f4f4f5",
+    padding: "4px 10px",
+    borderRadius: "6px",
+    fontSize: "0.78rem",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "background 0.15s ease",
   },
   presenceBar: {
     display: "flex",
